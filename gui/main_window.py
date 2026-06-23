@@ -298,17 +298,7 @@ class MainWindow(QMainWindow):
 
     def _update_download_summary(self, *args, **kwargs) -> None:
         """Update status bar with download progress."""
-        _ = args, kwargs
-        total = self._download_panel._model.rowCount()
-        done = 0
-        for row in range(total):
-            item = self._download_panel._model.item(row, 0)
-            if item and item.data(Qt.ItemDataRole.UserRole + 1) in (
-                "done",
-                "error",
-                "exists",
-            ):
-                done += 1
+        done, total = self._download_panel.get_done_count()
         self._download_summary_label.setText(f"📥 {done} / {total}")
 
     # ------------------------------------------------------------------

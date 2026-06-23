@@ -81,6 +81,14 @@ class _UrlParseResult:
 class ResourcePanel(QWidget):
     resources_changed = Signal()
 
+    _FAV_TYPE_MAPPING = {
+        "track": "TRACK",
+        "video": "VIDEO",
+        "album": "ALBUM",
+        "playlist": "PLAYLIST",
+        "artist": "ARTIST",
+    }
+
     def __init__(
         self,
         client: AsyncTidalClient,
@@ -484,17 +492,10 @@ class ResourcePanel(QWidget):
 
     def _on_favorites_loaded(self, data: dict) -> None:
         self._last_favorites_data = data
-        fav_type_mapping = {
-            "track": "TRACK",
-            "video": "VIDEO",
-            "album": "ALBUM",
-            "playlist": "PLAYLIST",
-            "artist": "ARTIST",
-        }
         stats_parts: list[str] = []
         for rt, cb in self._fav_type_checks.items():
             if cb.isChecked():
-                key = fav_type_mapping[rt]
+                key = self._FAV_TYPE_MAPPING[rt]
                 count = len(data.get(key, []))
                 stats_parts.append(f"{rt.title()}s: {count}")
         self._fav_stats_label.setText(" | ".join(stats_parts))
@@ -509,17 +510,10 @@ class ResourcePanel(QWidget):
         if not self._last_favorites_data:
             self._fav_error_label.setText("請先載入最愛")
             return
-        fav_type_mapping = {
-            "track": "TRACK",
-            "video": "VIDEO",
-            "album": "ALBUM",
-            "playlist": "PLAYLIST",
-            "artist": "ARTIST",
-        }
         added = 0
         for rt, cb in self._fav_type_checks.items():
             if cb.isChecked():
-                key = fav_type_mapping[rt]
+                key = self._FAV_TYPE_MAPPING[rt]
                 ids = self._last_favorites_data.get(key, [])
                 for rid in ids:
                     try:

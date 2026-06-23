@@ -108,6 +108,7 @@ class DownloadPanel(QWidget):
         self._manager = download_manager
         self._model = QStandardItemModel(0, len(_COLUMNS))
         self._resources: list[TidalResource] = []
+        self._done_count = 0
         self._start_time: float | None = None
         self._elapsed_timer = QTimer(self)
         self._elapsed_timer.timeout.connect(self._update_elapsed)
@@ -236,12 +237,17 @@ class DownloadPanel(QWidget):
         self._resources = list(resources)
         self._reset_model()
 
+    def get_done_count(self) -> tuple[int, int]:
+        """Return (done_count, total_count) for status bar."""
+        return self._done_count, self._model.rowCount()
+
     # ------------------------------------------------------------------
     # Model helpers
     # ------------------------------------------------------------------
 
     def _reset_model(self) -> None:
         self._model.removeRows(0, self._model.rowCount())
+        self._done_count = 0
         for res in self._resources:
             row_items = []
             for col in range(len(_COLUMNS)):
@@ -324,6 +330,7 @@ class DownloadPanel(QWidget):
             if name_item:
                 name_item.setForeground(QBrush(QColor("#ff4444")))
 
+        self._done_count += 1
         self._update_total_bar()
 
     def _on_all_complete(self) -> None:
@@ -380,6 +387,7 @@ class DownloadPanel(QWidget):
             self._model.removeRow(row)
             if row < len(self._resources):
                 del self._resources[row]
+        self._done_count = max(0, self._done_count - len(rows_to_remove))
         self._update_total_bar()
 
     def _open_output_folder(self) -> None:
@@ -417,14 +425,9 @@ class DownloadPanel(QWidget):
 
     def _update_total_bar(self) -> None:
         total = self._model.rowCount()
-        done = 0
-        for row in range(total):
-            item = self._model.item(row, _COL_STATUS)
-            if item and item.data(_STATUS_ROLE) in ("done", "error", "exists"):
-                done += 1
         self._total_bar.setMaximum(total)
-        self._total_bar.setValue(done)
-        self._count_label.setText(f"{done} / {total}")
+        self._total_bar.setValue(self._done_count)
+        self._count_label.setText(f"{self._done_count} / {total}")
 
     def _update_elapsed(self) -> None:
         if self._start_time is None:

@@ -6,7 +6,7 @@ from typing import Any, Type, TypeVar, Callable, Optional
 from pydantic import BaseModel
 from time import sleep
 
-from requests.exceptions import JSONDecodeError
+from requests.exceptions import ConnectionError, JSONDecodeError, Timeout
 from requests_cache import (
     CachedSession,
     StrOrPath,
@@ -31,6 +31,7 @@ class TidalClient:
     debug_path: Path | None
     session: CachedSession
     on_token_expiry: Optional[Callable[[], str | None]]
+    _is_refreshing: bool
 
     def __init__(
         self,
@@ -50,6 +51,7 @@ class TidalClient:
             "Accept": "application/json",
         }
         self._token = token
+        self._is_refreshing = False
 
     @property
     def token(self):
@@ -77,23 +79,65 @@ class TidalClient:
         and parse it into the given Pydantic model.
         """
 
-        res = self.session.get(
-            f"{API_URL}/{endpoint}", params=params, expire_after=expire_after
-        )
-
-        if res.status_code == 401 and self.on_token_expiry:
-            token = self.on_token_expiry()
-
-            if token:
-                self.token = token
-
+        try:
+            res = self.session.get(
+                f"{API_URL}/{endpoint}", params=params, expire_after=expire_after
+            )
+        except (ConnectionError, Timeout) as e:
+            if _attempt >= MAX_RETRIES:
+                raise ApiError(
+                    status=0,
+                    subStatus="0",
+                    userMessage=f"Connection failed after {MAX_RETRIES} attempts",
+                )
+            log.warning(f"Connection error, retrying {_attempt}/{MAX_RETRIES}: {e}")
+            sleep(RETRY_DELAY * _attempt)
             return self.fetch(
                 model=model,
                 endpoint=endpoint,
                 params=params,
                 expire_after=expire_after,
-                _attempt=MAX_RETRIES - 1,
+                _attempt=_attempt + 1,
             )
+
+        if res.status_code == 429 and _attempt < MAX_RETRIES:
+            retry_after = int(res.headers.get("Retry-After", RETRY_DELAY))
+            log.warning(f"Rate limited (429), retrying {_attempt}/{MAX_RETRIES} after {retry_after}s")
+            sleep(retry_after)
+            return self.fetch(
+                model=model,
+                endpoint=endpoint,
+                params=params,
+                expire_after=expire_after,
+                _attempt=_attempt + 1,
+            )
+
+        if res.status_code >= 500 and _attempt < MAX_RETRIES:
+            log.warning(f"Server error {res.status_code}, retrying {_attempt}/{MAX_RETRIES}")
+            sleep(RETRY_DELAY * _attempt)
+            return self.fetch(
+                model=model,
+                endpoint=endpoint,
+                params=params,
+                expire_after=expire_after,
+                _attempt=_attempt + 1,
+            )
+
+        if res.status_code == 401 and self.on_token_expiry and not self._is_refreshing:
+            self._is_refreshing = True
+            try:
+                token = self.on_token_expiry()
+                if token:
+                    self.token = token
+                    return self.fetch(
+                        model=model,
+                        endpoint=endpoint,
+                        params=params,
+                        expire_after=expire_after,
+                        _attempt=MAX_RETRIES - 1,
+                    )
+            finally:
+                self._is_refreshing = False
 
         log.debug(
             f"{endpoint} {params} '{'HIT' if res.from_cache else 'MISS'}' [{res.status_code}]",

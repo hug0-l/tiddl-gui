@@ -89,9 +89,9 @@ def test_refresh_token(mocker: MockerFixture):
     mock_request = mocker.patch("tiddl.core.auth.client.request")
 
     mock_response = mocker.Mock()
-    mock_response.status_code = 400
+    mock_response.status_code = 200
     mock_response.json.return_value = {
-        "token": "abc",
+        "access_token": "abc",
     }
     mock_request.return_value = mock_response
 
@@ -112,7 +112,7 @@ def test_refresh_token(mocker: MockerFixture):
         auth=(client.client_id, client.client_secret),
     )
 
-    assert result["token"] == "abc"
+    assert result["access_token"] == "abc"
 
 
 def test_logout_token(mocker: MockerFixture):

@@ -43,6 +43,18 @@ class AuthClient:
         self.client_id = CLIENT_ID
         self.client_secret = CLIENT_SECRET
 
+    def _post_token(self, data: dict) -> JSON:
+        res = request(
+            "POST",
+            f"{self.auth_url}/token",
+            data=data,
+            auth=(self.client_id, self.client_secret),
+        )
+        json_data = res.json()
+        if res.status_code != 200:
+            raise AuthClientError(**json_data)
+        return json_data
+
     def get_device_auth(self) -> JSON:
         res = request(
             "POST",
@@ -55,41 +67,20 @@ class AuthClient:
         return res.json()
 
     def get_auth(self, device_code: str) -> JSON:
-        res = request(
-            "POST",
-            f"{self.auth_url}/token",
-            data={
-                "client_id": self.client_id,
-                "device_code": device_code,
-                "grant_type": "urn:ietf:params:oauth:grant-type:device_code",
-                "scope": "r_usr+w_usr+w_sub",
-            },
-            auth=(self.client_id, self.client_secret),
-        )
-
-        json_data = res.json()
-
-        if res.status_code != 200:
-            raise AuthClientError(**json_data)
-
-        return json_data
+        return self._post_token({
+            "client_id": self.client_id,
+            "device_code": device_code,
+            "grant_type": "urn:ietf:params:oauth:grant-type:device_code",
+            "scope": "r_usr+w_usr+w_sub",
+        })
 
     def refresh_token(self, refresh_token: str) -> JSON:
-        res = request(
-            "POST",
-            f"{self.auth_url}/token",
-            data={
-                "client_id": self.client_id,
-                "refresh_token": refresh_token,
-                "grant_type": "refresh_token",
-                "scope": "r_usr+w_usr+w_sub",
-            },
-            auth=(self.client_id, self.client_secret),
-        )
-
-        res.raise_for_status()
-
-        return res.json()
+        return self._post_token({
+            "client_id": self.client_id,
+            "refresh_token": refresh_token,
+            "grant_type": "refresh_token",
+            "scope": "r_usr+w_usr+w_sub",
+        })
 
     def logout_token(self, access_token: str) -> None:
         res = request(

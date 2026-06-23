@@ -114,18 +114,18 @@ class Downloader:
             return None, False
 
         if isinstance(item, Track):
-            filename = get_existing_track_filename(
-                item.audioQuality, self.track_quality, file_path
-            )
-            existing_file_path = self.get_path(self.scan_path, filename)
-            vibrant_color = item.album.vibrantColor
-
+            return await self._download_track(item, file_path)
         elif isinstance(item, Video):
-            filename = file_path.with_suffix(".mp4")
-            existing_file_path = self.get_path(self.scan_path, filename)
-            vibrant_color = item.vibrantColor
+            return await self._download_video(item, file_path)
 
-        vibrant_color = vibrant_color or "gray"
+    async def _download_track(
+        self, item: Track, file_path: Path
+    ) -> tuple[Path | None, bool]:
+        filename = get_existing_track_filename(
+            item.audioQuality, self.track_quality, file_path
+        )
+        existing_file_path = self.get_path(self.scan_path, filename)
+        vibrant_color = item.album.vibrantColor or "gray"
 
         log.debug(f"{file_path=}, {filename=}, {existing_file_path=}")
 
@@ -142,9 +142,7 @@ class Downloader:
                 )
                 return existing_file_path, False
 
-        elif (isinstance(item, Video) and self.videos_filter == "none") or (
-            isinstance(item, Track) and self.videos_filter == "only"
-        ):
+        if self.videos_filter == "only":
             log.debug(f"skipping {item.id} due to {self.videos_filter=}")
             self.rich_output.console.print(
                 f"Skipping '{item.title}' due to video filter set to '{self.videos_filter}'"
@@ -154,62 +152,50 @@ class Downloader:
         should_extract_flac = False
 
         async with self.semaphore:
-            if isinstance(item, Track):
-                try:
-                    stream = self.api.get_track_stream(
-                        track_id=item.id, quality=self.track_quality
-                    )
+            try:
+                stream = self.api.get_track_stream(
+                    track_id=item.id, quality=self.track_quality
+                )
 
-                    log.debug(
-                        f"{stream.trackId=}, {stream.audioQuality=}, {stream.audioMode=}"
-                    )
+                log.debug(
+                    f"{stream.trackId=}, {stream.audioQuality=}, {stream.audioMode=}"
+                )
 
-                    if (
-                        self.dolby_atmos_filter == "none"
-                        and stream.audioMode == "DOLBY_ATMOS"
-                    ) or (
-                        self.dolby_atmos_filter == "only"
-                        and stream.audioMode == "STEREO"
-                    ):
-                        self.rich_output.console.print(
-                            f"[blue]Skipping[/] [gray]{item.title}[/] [blue]due to Dolby Atmos filter[/] {self.dolby_atmos_filter}"
-                        )
-                        return None, False
-
-                except ApiError as e:
-                    log.error(f"{item.id=} {e=}")
+                if (
+                    self.dolby_atmos_filter == "none"
+                    and stream.audioMode == "DOLBY_ATMOS"
+                ) or (
+                    self.dolby_atmos_filter == "only"
+                    and stream.audioMode == "STEREO"
+                ):
                     self.rich_output.console.print(
-                        f"[red]Error [{vibrant_color}]{item.title}[/] - {e.user_message}"
+                        f"[blue]Skipping[/] [gray]{item.title}[/] [blue]due to Dolby Atmos filter[/] {self.dolby_atmos_filter}"
                     )
                     return None, False
 
-                urls, _ = parse_track_stream(stream)
-                download_path = self.get_path(self.download_path, filename)
-
-                quality_string = track_qualities_color[stream.audioQuality]
-
-                if (
-                    stream.audioQuality in ["HI_RES_LOSSLESS", "LOSSLESS"]
-                    and stream.audioMode == "STEREO"
-                ):
-                    quality_string = f"{quality_string} {stream.bitDepth}-bit, {(stream.sampleRate or 0) / 1000:.1f} kHz"
-                    should_extract_flac = True
-                else:
-                    download_path = download_path.with_suffix(".m4a")
-
-                    if stream.audioMode == "DOLBY_ATMOS":
-                        quality_string = "[blue]Dolby Atmos[/]"
-
-            elif isinstance(item, Video):
-                stream = self.api.get_video_stream(
-                    video_id=item.id, quality=self.video_quality
+            except ApiError as e:
+                log.error(f"{item.id=} {e=}")
+                self.rich_output.console.print(
+                    f"[red]Error [{vibrant_color}]{item.title}[/] - {e.user_message}"
                 )
+                return None, False
 
-                urls, ext = parse_video_stream(stream), ".ts"
-                download_path = self.get_path(self.download_path, filename).with_suffix(
-                    ext
-                )
-                quality_string = video_qualities_color[stream.videoQuality]
+            urls, _ = parse_track_stream(stream)
+            download_path = self.get_path(self.download_path, filename)
+
+            quality_string = track_qualities_color[stream.audioQuality]
+
+            if (
+                stream.audioQuality in ["HI_RES_LOSSLESS", "LOSSLESS"]
+                and stream.audioMode == "STEREO"
+            ):
+                quality_string = f"{quality_string} {stream.bitDepth}-bit, {(stream.sampleRate or 0) / 1000:.1f} kHz"
+                should_extract_flac = True
+            else:
+                download_path = download_path.with_suffix(".m4a")
+
+                if stream.audioMode == "DOLBY_ATMOS":
+                    quality_string = "[blue]Dolby Atmos[/]"
 
             task_id = self.rich_output.download_start(
                 f"[{vibrant_color}]{item.title} {quality_string}"
@@ -239,12 +225,98 @@ class Downloader:
                 pass
 
             try:
-                if isinstance(item, Track) and should_extract_flac:
+                if should_extract_flac:
                     download_path = extract_flac(download_path)
-                elif isinstance(item, Video):
-                    download_path = convert_to_mp4(download_path)
             except Exception as exc:
                 log.error(f"{should_extract_flac=}, {exc=}")
+
+            task = self.rich_output.download_finish(
+                task_id=task_id,
+            )
+
+            self.rich_output.show_item_result(
+                result_message=result_message,
+                item_description=task.description,
+                item_path=download_path,
+            )
+
+            return download_path, True
+
+    async def _download_video(
+        self, item: Video, file_path: Path
+    ) -> tuple[Path | None, bool]:
+        filename = file_path.with_suffix(".mp4")
+        existing_file_path = self.get_path(self.scan_path, filename)
+        vibrant_color = item.vibrantColor or "gray"
+
+        log.debug(f"{file_path=}, {filename=}, {existing_file_path=}")
+
+        result_message = "[green]Downloaded"
+
+        if existing_file_path.exists():
+            result_message = "[cyan]Overwrited"
+
+            if self.skip_existing:
+                self.rich_output.show_item_result(
+                    result_message="[yellow]Exists",
+                    item_description=f"[{vibrant_color}]{item.title}",
+                    item_path=existing_file_path,
+                )
+                return existing_file_path, False
+
+        if self.videos_filter == "none":
+            log.debug(f"skipping {item.id} due to {self.videos_filter=}")
+            self.rich_output.console.print(
+                f"Skipping '{item.title}' due to video filter set to '{self.videos_filter}'"
+            )
+            return None, False
+
+        async with self.semaphore:
+            stream = self.api.get_video_stream(
+                video_id=item.id, quality=self.video_quality
+            )
+
+            urls, ext = parse_video_stream(stream), ".ts"
+            download_path = self.get_path(self.download_path, filename).with_suffix(
+                ext
+            )
+            quality_string = video_qualities_color[stream.videoQuality]
+
+            task_id = self.rich_output.download_start(
+                f"[{vibrant_color}]{item.title} {quality_string}"
+            )
+
+            download_path.parent.mkdir(exist_ok=True, parents=True)
+
+            # TODO shouldnt session be reused instead of
+            # creating new one on every download?
+
+            with NamedTemporaryFile(
+                "wb", delete=False, dir=download_path.parent
+            ) as tmp:
+                async with aiohttp.ClientSession(trust_env=True) as session:
+                    async with aiofiles.open(tmp.name, "wb") as f:
+                        for url in urls:
+                            async with session.get(url) as resp:
+                                async for chunk in resp.content.iter_chunked(
+                                    CHUNK_SIZE
+                                ):
+                                    await f.write(chunk)
+                                    self.rich_output.download_advance(
+                                        task_id, size=len(chunk)
+                                    )
+
+            shutil.move(tmp.name, download_path)
+
+            try:
+                download_path.chmod(0o644)
+            except OSError:
+                pass
+
+            try:
+                download_path = convert_to_mp4(download_path)
+            except Exception as exc:
+                log.error(f"exc={exc}")
 
             task = self.rich_output.download_finish(
                 task_id=task_id,

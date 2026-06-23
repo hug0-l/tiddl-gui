@@ -56,6 +56,10 @@ class MainWindow(QMainWindow):
         self._build_central_widget()
         self._build_status_bar()
         self._connect_signals()
+        # Manually trigger initial state callbacks because AsyncTidalClient.__init__
+        # emits auth_loaded and ffmpeg_status signals before _connect_signals is called.
+        self._on_auth_loaded(self._client.is_logged_in)
+        self._on_ffmpeg_status(is_ffmpeg_installed(), "")
 
         # Token countdown timer (every 60s)
         self._token_timer = QTimer(self)

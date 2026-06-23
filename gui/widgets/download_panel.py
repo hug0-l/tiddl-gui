@@ -51,7 +51,10 @@ _RESOURCE_ID_ROLE = Qt.ItemDataRole.UserRole + 2
 
 
 class ProgressBarDelegate(QStyledItemDelegate):
-    """Renders a QProgressBar inside the progress column."""
+    """Renders a QProgressBar inside the progress column.
+
+    Supports indeterminate mode when the display text is "...".
+    """
 
     def paint(
         self, painter: QPainter, option: QStyleOptionViewItem, index: QModelIndex
@@ -60,14 +63,17 @@ class ProgressBarDelegate(QStyledItemDelegate):
         if progress is None:
             super().paint(painter, option, index)
             return
-        try:
-            pct = float(progress)
-        except (ValueError, TypeError):
-            pct = 0.0
 
         bar = QProgressBar()
-        bar.setRange(0, 100)
-        bar.setValue(int(pct))
+        if progress == "...":
+            bar.setRange(0, 0)  # indeterminate mode
+        else:
+            try:
+                pct = float(progress)
+            except (ValueError, TypeError):
+                pct = 0.0
+            bar.setRange(0, 100)
+            bar.setValue(int(pct))
         bar.resize(option.rect.size())
         bar.setMinimumHeight(18)
         bar.setMaximumHeight(24)
@@ -120,14 +126,14 @@ class DownloadPanel(QWidget):
         settings_row = QHBoxLayout()
         settings_row.addWidget(QLabel("音質:"))
         self._track_quality_combo = QComboBox()
-        for q in ("low", "high", "lossless", "max"):
+        for q in ("low", "normal", "high", "max"):
             self._track_quality_combo.addItem(q, q)
         self._track_quality_combo.setCurrentText(CONFIG.download.track_quality)
         settings_row.addWidget(self._track_quality_combo)
 
         settings_row.addWidget(QLabel("影片品質:"))
         self._video_quality_combo = QComboBox()
-        for q in ("low", "medium", "high", "fhd"):
+        for q in ("sd", "hd", "fhd"):
             self._video_quality_combo.addItem(q, q)
         self._video_quality_combo.setCurrentText(CONFIG.download.video_quality)
         settings_row.addWidget(self._video_quality_combo)
@@ -279,13 +285,15 @@ class DownloadPanel(QWidget):
             status_item.setData("downloading", _STATUS_ROLE)
             status_item.setText("⬇️")
 
-        pct = 0
-        if total > 0:
-            pct = int(downloaded / total * 100)
-
         prog_item = self._model.item(row, _COL_PROGRESS)
         if prog_item:
-            prog_item.setText(str(pct))
+            # total is always 0 from GuiOutput (no Content-Length available),
+            # so use indeterminate progress display
+            if total > 0:
+                pct = int(downloaded / total * 100)
+                prog_item.setText(str(pct))
+            else:
+                prog_item.setText("...")
 
         self._update_total_bar()
 

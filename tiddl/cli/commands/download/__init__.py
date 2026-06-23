@@ -23,6 +23,8 @@ from tiddl.cli.config import (
     ATMOS_FILTER_LITERAL,
 )
 from tiddl.cli.utils.resource import TidalResource
+from tiddl.core.resolver import ResourceResolver
+
 from tiddl.cli.ctx import Context
 from tiddl.cli.commands.auth import refresh
 from tiddl.cli.commands.subcommands import register_subcommands
@@ -205,6 +207,7 @@ def download_callback(
 
     async def download_resources():
         rich_output = RichOutput(ctx.obj.console)
+        resolver = ResourceResolver(api=ctx.obj.api)
 
         downloader = Downloader(
             tidal_api=ctx.obj.api,
@@ -309,7 +312,6 @@ def download_callback(
                 return download_path, item
 
             async def download_album(album: Album):
-                offset = 0
                 futures = []
 
                 cover: Cover | None = None
@@ -328,64 +330,40 @@ def download_callback(
                     except Exception as e:
                         log.error(e)
 
-                while True:
-                    album_items = ctx.obj.api.get_album_items_credits(
-                        album_id=album.id, offset=offset
-                    )
-
-                    for album_item in album_items.items:
-                        try:
-                            template = TEMPLATE or CONFIG.templates.album
-                            file_path = format_template(
-                                template=template,
-                                item=album_item.item,
-                                album=album,
-                                quality=get_item_quality(album_item.item),
-                            )
-
-                        except AttributeError as exc:
-                            log.error(f"{exc=}")
-                            ctx.obj.console.print(
-                                f"[red]Wrong Album Template:[/] {exc} ({template=}, {album.id=}, {album_item.item.id=})"
-                            )
-                            continue
-
-                        try:
-                            futures.append(
-                                handle_item(
-                                    item=album_item.item,
-                                    file_path=file_path,
-                                    track_metadata=Metadata(
-                                        cover=cover,
-                                        date=str(album.releaseDate),
-                                        artist=(
-                                            album.artist.name if album.artist else ""
-                                        ),
-                                        credits=album_item.credits,
-                                        album_review=album_review,
+                template = TEMPLATE or CONFIG.templates.album
+                async for item, file_path in resolver._resolve_album_items(
+                    album, template,
+                    {"track_quality": TRACK_QUALITY, "video_quality": VIDEO_QUALITY},
+                ):
+                    try:
+                        futures.append(
+                            handle_item(
+                                item=item,
+                                file_path=str(file_path),
+                                track_metadata=Metadata(
+                                    cover=cover,
+                                    date=str(album.releaseDate),
+                                    artist=(
+                                        album.artist.name if album.artist else ""
                                     ),
-                                )
+                                    album_review=album_review,
+                                ),
                             )
-                        except ApiError as e:
-                            item = album_item.item
-                            track_info = f"Track: {getattr(item, 'title', 'Unknown')} (ID: {item.id})"
-                            if hasattr(item, "album") and item.album:
-                                track_info += f", Album ID: {item.album.id}"
-                            ctx.obj.console.print(
-                                f"[red]API Error:[/] {e} ({track_info})"
-                            )
-                            if RAISE_ERRORS:
-                                raise
-                        except Exception as e:
-                            item = album_item.item
-                            track_info = f"Track: {getattr(item, 'title', 'Unknown')} (ID: {item.id})"
-                            ctx.obj.console.print(f"[red]Error:[/] {e} ({track_info})")
-                            if RAISE_ERRORS:
-                                raise
-
-                    offset += album_items.limit
-                    if offset >= album_items.totalNumberOfItems:
-                        break
+                        )
+                    except ApiError as e:
+                        track_info = f"Track: {getattr(item, 'title', 'Unknown')} (ID: {item.id})"
+                        if hasattr(item, "album") and item.album:
+                            track_info += f", Album ID: {item.album.id}"
+                        ctx.obj.console.print(
+                            f"[red]API Error:[/] {e} ({track_info})"
+                        )
+                        if RAISE_ERRORS:
+                            raise
+                    except Exception as e:
+                        track_info = f"Track: {getattr(item, 'title', 'Unknown')} (ID: {item.id})"
+                        ctx.obj.console.print(f"[red]Error:[/] {e} ({track_info})")
+                        if RAISE_ERRORS:
+                            raise
 
                 tracks_with_path = await asyncio.gather(*futures)
 
@@ -414,118 +392,72 @@ def download_callback(
             match resource.type:
 
                 case "track":
-                    track = ctx.obj.api.get_track(resource.id)
-                    album = ctx.obj.api.get_album(track.album.id)
+                    track_saved = None
+                    album_saved = None
+                    async for item, file_path in resolver._resolve_track(
+                        resource,
+                        {
+                            "template": TEMPLATE or CONFIG.templates.track,
+                            "track_quality": TRACK_QUALITY,
+                            "video_quality": VIDEO_QUALITY,
+                        },
+                    ):
+                        track_saved = item
+                        album_saved = ctx.obj.api.get_album(item.album.id)
 
-                    cover: Cover | None = None
-                    save_cover = ("track" in CONFIG.cover.allowed) and CONFIG.cover.save
+                        cover: Cover | None = None
+                        save_cover = ("track" in CONFIG.cover.allowed) and CONFIG.cover.save
 
-                    if album.cover and (CONFIG.metadata.cover or save_cover):
-                        cover = Cover(album.cover, size=CONFIG.cover.size)
+                        if album_saved.cover and (CONFIG.metadata.cover or save_cover):
+                            cover = Cover(album_saved.cover, size=CONFIG.cover.size)
 
-                    await handle_item(
-                        item=track,
-                        file_path=format_template(
-                            template=TEMPLATE or CONFIG.templates.track,
-                            item=track,
-                            album=album,
-                            quality=get_item_quality(track),
-                        ),
-                        track_metadata=Metadata(
-                            cover=cover,
-                            date=str(album.releaseDate),
-                            artist=album.artist.name if album.artist else "",
-                            # credits are missing
-                        ),
-                    )
+                        await handle_item(
+                            item=item,
+                            file_path=str(file_path),
+                            track_metadata=Metadata(
+                                cover=cover,
+                                date=str(album_saved.releaseDate),
+                                artist=album_saved.artist.name if album_saved.artist else "",
+                            ),
+                        )
 
                     if (
                         CONFIG.cover.save
                         and ("track" in CONFIG.cover.allowed)
-                        and track.album.cover
+                        and track_saved
+                        and track_saved.album.cover
                     ):
                         Cover(
-                            track.album.cover, size=CONFIG.cover.size
+                            track_saved.album.cover, size=CONFIG.cover.size
                         ).save_to_directory(
                             path=DOWNLOAD_PATH
                             / format_template(
-                                CONFIG.cover.templates.track, item=track, album=album
+                                CONFIG.cover.templates.track, item=track_saved, album=album_saved
                             )
                         )
 
                 case "video":
-                    video = ctx.obj.api.get_video(resource.id)
-                    template = TEMPLATE or CONFIG.templates.video
-
-                    if (
-                        "{album" in template
-                        and video.album
-                        and video.album.id is not None
+                    async for item, file_path in resolver._resolve_video(
+                        resource,
+                        {
+                            "template": TEMPLATE or CONFIG.templates.video,
+                            "track_quality": TRACK_QUALITY,
+                            "video_quality": VIDEO_QUALITY,
+                        },
                     ):
-                        album = ctx.obj.api.get_album(video.album.id)
-                    else:
-                        album = None
-
-                    await handle_item(
-                        item=video,
-                        file_path=format_template(
-                            template=template,
-                            item=video,
-                            album=album,
-                            quality=get_item_quality(video),
-                        ),
-                    )
+                        await handle_item(item=item, file_path=str(file_path))
 
                 case "mix":
-                    offset = 0
                     futures = []
-
-                    while True:
-                        mix_items = ctx.obj.api.get_mix_items(resource.id, offset=0)
-
-                        for mix_item in mix_items.items:
-                            template = TEMPLATE or CONFIG.templates.mix
-
-                            try:
-                                if "{album" in template:
-                                    album = ctx.obj.api.get_album(
-                                        mix_item.item.album.id
-                                    )
-                                else:
-                                    album = None
-
-                                futures.append(
-                                    handle_item(
-                                        item=mix_item.item,
-                                        file_path=format_template(
-                                            template=template,
-                                            item=mix_item.item,
-                                            album=album,
-                                            mix_id=resource.id,
-                                            quality=get_item_quality(mix_item.item),
-                                        ),
-                                    )
-                                )
-                            except ApiError as e:
-                                item = mix_item.item
-                                track_info = f"Track: {getattr(item, 'title', 'Unknown')} (ID: {item.id})"
-                                ctx.obj.console.print(
-                                    f"[red]API Error:[/] {e} ({track_info})"
-                                )
-                                if RAISE_ERRORS:
-                                    raise
-                            except Exception as e:
-                                item = mix_item.item
-                                track_info = f"Track: {getattr(item, 'title', 'Unknown')} (ID: {item.id})"
-                                ctx.obj.console.print(
-                                    f"[red]Error:[/] {e} ({track_info})"
-                                )
-                                if RAISE_ERRORS:
-                                    raise
-
-                        offset += mix_items.limit
-                        if offset >= mix_items.totalNumberOfItems:
-                            break
+                    async for item, file_path in resolver._resolve_mix(
+                        resource,
+                        {
+                            "template": TEMPLATE or CONFIG.templates.mix,
+                            "track_quality": TRACK_QUALITY,
+                            "video_quality": VIDEO_QUALITY,
+                        },
+                    ):
+                        futures.append(handle_item(item=item, file_path=str(file_path)))
 
                     tracks_with_path = await asyncio.gather(*futures)
 
@@ -638,66 +570,19 @@ def download_callback(
                     await asyncio.gather(*futures)
 
                 case "playlist":
-                    offset = 0
-                    futures = []
-                    playlist_index = 0
                     playlist = ctx.obj.api.get_playlist(playlist_uuid=resource.id)
-
-                    while True:
-                        playlist_items = ctx.obj.api.get_playlist_items(
-                            playlist_uuid=resource.id, offset=offset
+                    futures = []
+                    async for item, file_path in resolver._resolve_playlist(
+                        resource,
+                        {
+                            "template": TEMPLATE or CONFIG.templates.playlist,
+                            "track_quality": TRACK_QUALITY,
+                            "video_quality": VIDEO_QUALITY,
+                        },
+                    ):
+                        futures.append(
+                            handle_item(item=item, file_path=str(file_path), track_metadata=Metadata())
                         )
-
-                        for playlist_item in playlist_items.items:
-                            playlist_index += 1
-                            template = TEMPLATE or CONFIG.templates.playlist
-
-                            try:
-                                if "{album" in template:
-                                    album = ctx.obj.api.get_album(
-                                        playlist_item.item.album.id
-                                    )
-                                else:
-                                    album = None
-
-                                futures.append(
-                                    handle_item(
-                                        item=playlist_item.item,
-                                        file_path=format_template(
-                                            template=template,
-                                            item=playlist_item.item,
-                                            album=album,
-                                            playlist=playlist,
-                                            playlist_index=playlist_index,
-                                            quality=get_item_quality(
-                                                playlist_item.item
-                                            ),
-                                        ),
-                                        track_metadata=Metadata(),
-                                    )
-                                )
-                            except ApiError as e:
-                                item = playlist_item.item
-                                track_info = f"Track: {getattr(item, 'title', 'Unknown')} (ID: {item.id})"
-                                if hasattr(item, "album") and item.album:
-                                    track_info += f", Album ID: {item.album.id}"
-                                ctx.obj.console.print(
-                                    f"[red]API Error:[/] {e} ({track_info})"
-                                )
-                                if RAISE_ERRORS:
-                                    raise
-                            except Exception as e:
-                                item = playlist_item.item
-                                track_info = f"Track: {getattr(item, 'title', 'Unknown')} (ID: {item.id})"
-                                ctx.obj.console.print(
-                                    f"[red]Error:[/] {e} ({track_info})"
-                                )
-                                if RAISE_ERRORS:
-                                    raise
-
-                        offset += playlist_items.limit
-                        if offset >= playlist_items.totalNumberOfItems:
-                            break
 
                     tracks_with_path = await asyncio.gather(*futures)
 

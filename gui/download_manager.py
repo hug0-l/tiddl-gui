@@ -10,17 +10,13 @@ from PySide6.QtCore import QObject, Signal
 
 from tiddl.cli.commands.download.downloader import Downloader
 from tiddl.cli.config import (
-    ATMOS_FILTER_LITERAL,
-    TRACK_QUALITY_LITERAL,
-    VIDEO_QUALITY_LITERAL,
-    VIDEOS_FILTER_LITERAL,
     CONFIG,
     Config,
 )
 from tiddl.cli.utils.resource import TidalResource
+from tiddl.core.resolver import ResourceResolver
 from tiddl.core.api import TidalAPI
-from tiddl.core.api.models import Album, Track, Video
-from tiddl.core.utils.format import format_template
+from tiddl.core.api.models import Track, Video
 
 if TYPE_CHECKING:
     from gui.client import AsyncTidalClient
@@ -235,25 +231,6 @@ class DownloadManager(QObject):
             ),
         }
 
-    def _get_item_quality(
-        self, item: Track | Video, options: dict
-    ) -> str:
-        track_q: TRACK_QUALITY_LITERAL = options.get(
-            "track_quality", CONFIG.download.track_quality
-        )
-        video_q: VIDEO_QUALITY_LITERAL = options.get(
-            "video_quality", CONFIG.download.video_quality
-        )
-        if isinstance(item, Track):
-            if track_q in ("low", "normal"):
-                return track_q.upper()
-            if track_q == "max" and "HIRES_LOSSLESS" not in item.mediaMetadata.tags:
-                return "HIGH"
-            return track_q.upper()
-        elif isinstance(item, Video):
-            return video_q.upper()
-        return track_q.upper()
-
     async def _handle_resource(
         self,
         api: TidalAPI,
@@ -264,6 +241,8 @@ class DownloadManager(QObject):
         """Resolve one TidalResource to items and feed them to Downloader."""
         if self._cancelled.is_set():
             return
+
+        resolver = ResourceResolver(api=api)
 
         async def handle_item(
             item: Track | Video,
@@ -277,218 +256,5 @@ class DownloadManager(QObject):
             )
             return dl_path, item
 
-        match resource.type:
-            case "track":
-                track = await asyncio.to_thread(api.get_track, resource.id)
-                album = await asyncio.to_thread(api.get_album, track.album.id)
-                template = options.get("template") or CONFIG.templates.track
-                file_path_str = format_template(
-                    template=template,
-                    item=track,
-                    album=album,
-                    quality=self._get_item_quality(track, options),
-                )
-                await handle_item(track, Path(file_path_str))
-
-            case "video":
-                video = await asyncio.to_thread(api.get_video, resource.id)
-                template = options.get("template") or CONFIG.templates.video
-                if "{album" in template and video.album and video.album.id is not None:
-                    album = await asyncio.to_thread(api.get_album, video.album.id)
-                else:
-                    album = None
-                file_path_str = format_template(
-                    template=template,
-                    item=video,
-                    album=album,
-                    quality=self._get_item_quality(video, options),
-                )
-                await handle_item(video, Path(file_path_str))
-
-            case "album":
-                album = await asyncio.to_thread(api.get_album, resource.id)
-                await self._download_album(
-                    api, downloader, album, resource, options
-                )
-
-            case "playlist":
-                playlist = await asyncio.to_thread(
-                    api.get_playlist, resource.id
-                )
-                offset = 0
-                playlist_index = 0
-                template = options.get("template") or CONFIG.templates.playlist
-                while True:
-                    playlist_items = await asyncio.to_thread(
-                        api.get_playlist_items, resource.id, offset=offset
-                    )
-                    for pl_item in playlist_items.items:
-                        playlist_index += 1
-                        if "{album" in template:
-                            album = await asyncio.to_thread(
-                                api.get_album, pl_item.item.album.id
-                            )
-                        else:
-                            album = None
-                        file_path_str = format_template(
-                            template=template,
-                            item=pl_item.item,
-                            album=album,
-                            playlist=playlist,
-                            playlist_index=playlist_index,
-                            quality=self._get_item_quality(
-                                pl_item.item, options
-                            ),
-                        )
-                        await handle_item(
-                            pl_item.item, Path(file_path_str)
-                        )
-                    offset += playlist_items.limit
-                    if offset >= playlist_items.totalNumberOfItems:
-                        break
-
-            case "artist":
-                await self._download_artist(
-                    api, downloader, resource, options
-                )
-
-            case "mix":
-                offset = 0
-                template = options.get("template") or CONFIG.templates.mix
-                while True:
-                    mix_items = await asyncio.to_thread(
-                        api.get_mix_items, resource.id, offset=0
-                    )
-                    for mix_item in mix_items.items:
-                        if "{album" in template:
-                            album = await asyncio.to_thread(
-                                api.get_album, mix_item.item.album.id
-                            )
-                        else:
-                            album = None
-                        file_path_str = format_template(
-                            template=template,
-                            item=mix_item.item,
-                            album=album,
-                            mix_id=resource.id,
-                            quality=self._get_item_quality(
-                                mix_item.item, options
-                            ),
-                        )
-                        await handle_item(
-                            mix_item.item, Path(file_path_str)
-                        )
-                    offset += mix_items.limit
-                    if offset >= mix_items.totalNumberOfItems:
-                        break
-
-    async def _download_album(
-        self,
-        api: TidalAPI,
-        downloader: Downloader,
-        album: Album,
-        resource: TidalResource,
-        options: dict,
-    ) -> None:
-        offset = 0
-        template = options.get("template") or CONFIG.templates.album
-        while True:
-            album_items = await asyncio.to_thread(
-                api.get_album_items_credits, album.id, offset=offset
-            )
-            for album_item in album_items.items:
-                if self._cancelled.is_set():
-                    return
-                file_path_str = format_template(
-                    template=template,
-                    item=album_item.item,
-                    album=album,
-                    quality=self._get_item_quality(album_item.item, options),
-                )
-                await downloader.download(
-                    item=album_item.item, file_path=Path(file_path_str)
-                )
-            offset += album_items.limit
-            if offset >= album_items.totalNumberOfItems:
-                break
-
-    async def _download_artist(
-        self,
-        api: TidalAPI,
-        downloader: Downloader,
-        resource: TidalResource,
-        options: dict,
-    ) -> None:
-        videos_filter: VIDEOS_FILTER_LITERAL = options.get(
-            "videos_filter", CONFIG.download.videos_filter
-        )
-        singles_filter = options.get(
-            "singles_filter", CONFIG.download.singles_filter
-        )
-
-        async def safe_download_album(album: Album):
-            await self._download_album(
-                api, downloader, album, resource, options
-            )
-
-        futures = []
-
-        if videos_filter != "none":
-            offset = 0
-            while True:
-                artist_videos = await asyncio.to_thread(
-                    api.get_artist_videos, resource.id, offset=offset
-                )
-                for video in artist_videos.items:
-                    template = (
-                        options.get("template") or CONFIG.templates.video
-                    )
-                    if "{album" in template and video.album:
-                        album = await asyncio.to_thread(
-                            api.get_album, video.album.id
-                        )
-                    else:
-                        album = None
-                    file_path_str = format_template(
-                        template=template,
-                        item=video,
-                        album=album,
-                        quality=self._get_item_quality(video, options),
-                    )
-                    futures.append(
-                        downloader.download(
-                            video, Path(file_path_str)
-                        )
-                    )
-                offset += artist_videos.limit
-                if offset > artist_videos.totalNumberOfItems:
-                    break
-
-        if videos_filter != "only":
-
-            def get_all_albums(singles: bool):
-                offset_a = 0
-                while True:
-                    artist_albums = api.get_artist_albums(
-                        artist_id=resource.id,
-                        offset=offset_a,
-                        filter="EPSANDSINGLES" if singles else "ALBUMS",
-                    )
-                    for album_item in artist_albums.items:
-                        futures.append(
-                            safe_download_album(album_item)
-                        )
-                    offset_a += artist_albums.limit
-                    if offset_a >= artist_albums.totalNumberOfItems:
-                        break
-
-            if singles_filter == "include":
-                await asyncio.to_thread(get_all_albums, False)
-                await asyncio.to_thread(get_all_albums, True)
-            else:
-                await asyncio.to_thread(
-                    get_all_albums, singles_filter == "only"
-                )
-
-        if futures:
-            await asyncio.gather(*futures)
+        async for item, file_path in resolver.resolve(resource, options):
+            await handle_item(item, file_path)

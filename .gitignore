@@ -1,3 +1,10 @@
+# IDE
+.idea/
+.vscode/
+
+# Task agent artifacts
+.refact/
+
 # Byte-compiled / optimized / DLL files
 __pycache__/
 *.py[cod]

@@ -53,6 +53,7 @@ class Downloader:
     scan_path: Path
     match_existing_path_case: bool
     dolby_atmos_filter: ATMOS_FILTER_LITERAL
+    _session: aiohttp.ClientSession | None
 
     def __init__(
         self,
@@ -79,12 +80,23 @@ class Downloader:
         self.scan_path = scan_path
         self.match_existing_path_case = match_existing_path_case
         self.dolby_atmos_filter = dolby_atmos_filter
+        self._session = None
 
     def get_path(self, base_path: Path, relative_path: Path) -> Path:
         if self.match_existing_path_case:
             return resolve_existing_path_case(base_path, relative_path)
 
         return base_path / relative_path
+
+    async def _get_session(self) -> aiohttp.ClientSession:
+        if self._session is None:
+            self._session = aiohttp.ClientSession(trust_env=True)
+        return self._session
+
+    async def close(self) -> None:
+        if self._session is not None:
+            await self._session.close()
+            self._session = None
 
     async def download(
         self, item: Track | Video, file_path: Path
@@ -205,24 +217,20 @@ class Downloader:
 
             download_path.parent.mkdir(exist_ok=True, parents=True)
 
-            # TODO shouldnt session be reused instead of
-            # creating new one on every download?
-
             with NamedTemporaryFile(
                 "wb", delete=False, dir=download_path.parent
             ) as tmp:
-                async with aiohttp.ClientSession(trust_env=True) as session:
-                    async with aiofiles.open(tmp.name, "wb") as f:
-                        for url in urls:
-                            async with session.get(url) as resp:
-                                async for chunk in resp.content.iter_chunked(
-                                    CHUNK_SIZE
-                                ):
-                                    await f.write(chunk)
-                                    self.rich_output.download_advance(
-                                        task_id, size=len(chunk)
-                                    )
-
+                session = await self._get_session()
+                async with aiofiles.open(tmp.name, "wb") as f:
+                    for url in urls:
+                        async with session.get(url) as resp:
+                            async for chunk in resp.content.iter_chunked(
+                                CHUNK_SIZE
+                            ):
+                                await f.write(chunk)
+                                self.rich_output.download_advance(
+                                    task_id, size=len(chunk)
+                                )
             shutil.move(tmp.name, download_path)
 
             try:

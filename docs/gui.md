@@ -53,3 +53,16 @@ Each track gets its own progress bar.
 
 Every error shows: what happened → technical detail → how to fix.
 The **Copy Details** button copies all three for reporting.
+
+---
+
+## Legal & DMCA
+
+This project is **for educational and research purposes only**.
+
+- Does **not** circumvent DRM or break encryption.
+- Accesses Tidal's public API — no different from the official client.
+- You may only download content you **already have lawful access to** via your Tidal subscription.
+- **Not affiliated** with Tidal or Block, Inc.
+- No copyrighted content is hosted or distributed here.
+- Rights holders: open a GitHub issue for takedown requests.

@@ -8,7 +8,8 @@
 ![PySide6](https://img.shields.io/badge/PySide6-6.11-green)
 
 > [!WARNING]
-> `This app is for personal use only and is not affiliated with Tidal. Users must ensure their use complies with Tidal's terms of service and local copyright laws. Downloaded tracks are for personal use and may not be shared or redistributed. The developer assumes no responsibility for misuse of this app.`
+> **DMCA & Legal Disclaimer**
+> This project is for **educational and personal use only**. It does not circumvent DRM, break encryption, or bypass any technical protection measures — it accesses Tidal's public API identically to the official client. You may only download content you already have lawful access to through your Tidal subscription. This project is not affiliated with Tidal or Block, Inc. Users bear sole responsibility for compliance with Tidal's ToS and applicable laws. The developer assumes no liability for misuse.
 
 # Installation
 
@@ -223,3 +224,17 @@ uv pip install -e .
 [Tidal API wiki (api endpoints)](https://github.com/Fokka-Engineering/TIDAL)
 
 [Tidal-Media-Downloader (inspiration)](https://github.com/yaronzz/Tidal-Media-Downloader)
+
+---
+
+## Legal & DMCA
+
+This project is provided **for educational and research purposes only**.
+
+- It does **not** circumvent DRM, break encryption, or bypass technical protection measures.
+- It accesses Tidal's public API using the same endpoints as the official client.
+- All downloaded content is **already lawfully accessible** to the user through their own Tidal subscription.
+- This project is **not affiliated with, endorsed by, or connected to** Tidal or Block, Inc.
+- Users must ensure compliance with Tidal's Terms of Service and all applicable laws.
+- No copyrighted content is hosted or distributed by this repository.
+- Rights holders: please open a GitHub issue for any takedown requests.

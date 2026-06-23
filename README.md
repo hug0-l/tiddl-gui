@@ -1,13 +1,14 @@
-# Tidal Downloader
+# tiddl-gui
 
-Download tracks and videos from Tidal with max quality! `tiddl` is CLI app written in Python.
+> **Fork of [oskvr37/tiddl](https://github.com/oskvr37/tiddl)** — a Tidal music downloader CLI.
+> This fork adds a **PySide6 GUI** and improvements to the core library.
+> All credit for the original CLI goes to [oskvr37](https://github.com/oskvr37).
+
+![tiddl-gui](https://img.shields.io/badge/tiddl--gui-v3.4.4a1-blue)
+![PySide6](https://img.shields.io/badge/PySide6-6.11-green)
 
 > [!WARNING]
 > `This app is for personal use only and is not affiliated with Tidal. Users must ensure their use complies with Tidal's terms of service and local copyright laws. Downloaded tracks are for personal use and may not be shared or redistributed. The developer assumes no responsibility for misuse of this app.`
-
-![PyPI - Downloads](https://img.shields.io/pypi/dm/tiddl?style=for-the-badge&color=%2332af64)
-![PyPI - Version](https://img.shields.io/pypi/v/tiddl?style=for-the-badge)
-[<img src="https://img.shields.io/badge/gitmoji-%20😜%20😍-FFDD67.svg?style=for-the-badge" />](https://gitmoji.dev)
 
 # Installation
 
@@ -151,6 +152,49 @@ TIDDL_PATH=~/custom/tiddl tiddl auth login
 Set `TIDDL_AUTH` environment variable to use another credentials.
 
 TIDDL_AUTH=<CLIENT_ID>;<CLIENT_SECRET>
+
+## GUI
+
+This fork adds a desktop GUI built with **PySide6** and **qasync**.
+
+```bash
+# Install with GUI dependencies
+pip install -e ".[gui]"
+
+# Launch
+tiddl-gui
+```
+
+| Feature | Description |
+|---------|-------------|
+| Login/Logout | Device authentication flow |
+| Search | Search tracks, albums, artists, playlists |
+| Favorites | Load and filter your Tidal favorites |
+| Album Preview | See track list with checkboxes before downloading |
+| Per-Track Progress | Each track has its own progress bar |
+| Settings | Full config.toml editor (6 tabs) |
+| Error Details | Every error shows what + why + how to fix |
+
+---
+
+# Fork Improvements
+
+### Core Library
+- Async API client -- `TidalClient` migrated from `requests` to `aiohttp`
+- DASH manifest support -- proper MPD XML parsing for HI_RES_LOSSLESS
+- Quality fallback chain -- auto-degrade if requested tier unavailable
+- Smart retry -- exponential backoff on 429/5xx/connection errors
+- Token refresh guard -- prevents re-entrant refresh
+
+### Bug Fixes
+- Max quality downloads -- HI_RES_LOSSLESS no longer treated as FLAC
+- Missing `await` -- fixed async calls in CLI download handler
+- Progress tracking -- counter replaces O(n) full scan
+
+### Code Quality
+- 104 tests passing
+- Dead code removal, streamlined imports
+- Thread-safe auth data access
 
 # Development
 

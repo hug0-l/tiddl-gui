@@ -336,6 +336,12 @@ class ResourcePanel(QWidget):
         if added > 0:
             self._refresh_queue_table()
             self.resources_changed.emit()
+            self._tabs.setCurrentIndex(3)
+            self._url_error_label.setStyleSheet("color: green;")
+            self._url_error_label.setText(f"✅ 已加入 {added} 個資源到佇列")
+        else:
+            self._url_error_label.setStyleSheet("color: red;")
+            self._url_error_label.setText("沒有可加入的資源")
 
     # ------------------------------------------------------------------
     # Search tab
@@ -431,6 +437,9 @@ class ResourcePanel(QWidget):
         if auto_added:
             self._refresh_queue_table()
             self.resources_changed.emit()
+            self._tabs.setCurrentIndex(3)
+            self._search_error_label.setStyleSheet("color: green;")
+            self._search_error_label.setText("✅ Top Hit 已自動加入佇列")
 
     def _on_search_error(self, error: ErrorInfo) -> None:
         self._search_error_label.setText(
@@ -442,7 +451,10 @@ class ResourcePanel(QWidget):
         for item in self._search_table.selectedItems():
             selected_rows.add(item.row())
         if not selected_rows:
+            self._search_error_label.setStyleSheet("color: red;")
+            self._search_error_label.setText("請先選取要加入的搜尋結果")
             return
+        added = 0
         for row in sorted(selected_rows):
             if row < len(self._search_results):
                 rtype, _name, tid = self._search_results[row]
@@ -451,10 +463,14 @@ class ResourcePanel(QWidget):
                         TidalResource, TidalResource(type=rtype, id=tid)
                     )
                     self._resources.append(res)
+                    added += 1
                 except Exception:
                     pass
         self._refresh_queue_table()
         self.resources_changed.emit()
+        self._tabs.setCurrentIndex(3)
+        self._search_error_label.setStyleSheet("color: green;")
+        self._search_error_label.setText(f"✅ 已加入 {added} 個資源到佇列")
 
     # ------------------------------------------------------------------
     # Favorites tab
@@ -519,6 +535,8 @@ class ResourcePanel(QWidget):
         if added > 0:
             self._refresh_queue_table()
             self.resources_changed.emit()
+            self._tabs.setCurrentIndex(3)
+            self._fav_stats_label.setText(f"✅ 已加入 {added} 個資源到佇列")
 
     # ------------------------------------------------------------------
     # Queue tab

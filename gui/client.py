@@ -1,7 +1,6 @@
 from __future__ import annotations
 
 import asyncio
-from dataclasses import dataclass
 from time import time
 from typing import Callable, Optional
 
@@ -16,12 +15,7 @@ from tiddl.core.auth import AuthAPI
 from tiddl.core.auth.exceptions import AuthClientError
 from tiddl.core.utils.ffmpeg import is_ffmpeg_installed
 
-
-@dataclass
-class ErrorInfo:
-    user_message: str
-    technical_detail: str
-    suggestion: str
+from gui.error_handler import ErrorInfo
 
 
 class AsyncTidalClient(QObject):
@@ -47,6 +41,18 @@ class AsyncTidalClient(QObject):
 
         ffmpeg_ok = is_ffmpeg_installed()
         self.ffmpeg_status.emit(ffmpeg_ok, "")
+
+    @property
+    def is_logged_in(self) -> bool:
+        return self._auth_data.token is not None
+
+    @property
+    def token_expires_at(self) -> int:
+        return self._auth_data.expires_at
+
+    @property
+    def username(self) -> str:
+        return str(self._auth_data.user_id or "")
 
     @asyncSlot()
     async def check_auth_status(self) -> None:

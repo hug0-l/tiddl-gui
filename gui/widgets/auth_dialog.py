@@ -15,7 +15,8 @@ from PySide6.QtWidgets import (
     QVBoxLayout,
 )
 
-from gui.client import AsyncTidalClient, ErrorInfo
+from gui.client import AsyncTidalClient
+from gui.error_handler import ErrorInfo
 
 
 class LoginDialog(QDialog):

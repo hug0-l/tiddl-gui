@@ -1,17 +1,13 @@
 import sys
 import asyncio
 
-from PySide6.QtWidgets import QApplication, QMainWindow
+from PySide6.QtWidgets import QApplication
 import qasync
 
 from tiddl.cli.config import load_config_file, APP_PATH, CONFIG_FILENAME
 
-
-class MainWindow(QMainWindow):
-    def __init__(self):
-        super().__init__()
-        self.setWindowTitle("tiddl-gui")
-        self.resize(800, 600)
+from gui.error_handler import install_global_exception_hook
+from gui.main_window import MainWindow
 
 
 def main():
@@ -21,6 +17,8 @@ def main():
     asyncio.set_event_loop(loop)
 
     load_config_file(APP_PATH / CONFIG_FILENAME)
+
+    install_global_exception_hook()
 
     window = MainWindow()
     window.show()

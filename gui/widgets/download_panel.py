@@ -18,6 +18,7 @@ from PySide6.QtWidgets import (
     QHBoxLayout,
     QHeaderView,
     QLabel,
+    QMessageBox,
     QProgressBar,
     QPushButton,
     QStyledItemDelegate,
@@ -47,7 +48,7 @@ _COLUMNS = ["Status", "Name", "Type", "Progress", "Speed", "Size", "Path"]
 
 # Custom data roles
 _STATUS_ROLE = Qt.ItemDataRole.UserRole + 1
-_RESOURCE_ID_ROLE = Qt.ItemDataRole.UserRole + 2
+_TRACK_ID_ROLE = Qt.ItemDataRole.UserRole + 2
 
 
 class ProgressBarDelegate(QStyledItemDelegate):
@@ -95,7 +96,7 @@ class DownloadPanel(QWidget):
     Layout
     ------
     - Top: Settings override row (quality selectors)
-    - Middle: QTreeView with progress-per-resource
+    - Middle: QTreeView with per-track progress rows
     - Bottom: Totals bar + controls
     """
 
@@ -112,6 +113,7 @@ class DownloadPanel(QWidget):
         self._start_time: float | None = None
         self._elapsed_timer = QTimer(self)
         self._elapsed_timer.timeout.connect(self._update_elapsed)
+        self._has_progress_started = False
 
         self._build_ui()
         self._connect_signals()
@@ -154,8 +156,9 @@ class DownloadPanel(QWidget):
         header = self._tree.header()
         header.setStretchLastSection(True)
         header.setSectionResizeMode(
-            _COL_STATUS, QHeaderView.ResizeMode.ResizeToContents
+            _COL_STATUS, QHeaderView.ResizeMode.Fixed
         )
+        header.resizeSection(_COL_STATUS, 36)
         header.setSectionResizeMode(_COL_NAME, QHeaderView.ResizeMode.Stretch)
         header.setSectionResizeMode(
             _COL_TYPE, QHeaderView.ResizeMode.ResizeToContents
@@ -223,6 +226,7 @@ class DownloadPanel(QWidget):
         layout.addLayout(ctrl_row)
 
     def _connect_signals(self) -> None:
+        self._manager.track_added.connect(self._on_track_added)
         self._manager.download_progress.connect(self._on_progress)
         self._manager.download_complete.connect(self._on_complete)
         self._manager.all_downloads_complete.connect(self._on_all_complete)
@@ -248,30 +252,32 @@ class DownloadPanel(QWidget):
     def _reset_model(self) -> None:
         self._model.removeRows(0, self._model.rowCount())
         self._done_count = 0
-        for res in self._resources:
-            row_items = []
-            for col in range(len(_COLUMNS)):
-                item = QStandardItem()
-                item.setEditable(False)
-                row_items.append(item)
+        self._has_progress_started = False
 
-            row_items[_COL_STATUS].setText("⏳")
-            row_items[_COL_NAME].setText(f"{res.type}:{res.id}")
-            row_items[_COL_TYPE].setText(res.type)
-            row_items[_COL_PROGRESS].setText("0")
-            row_items[_COL_SPEED].setText("")
-            row_items[_COL_SIZE].setText("")
-            row_items[_COL_PATH].setText(res.url)
+    def _add_track_row(self, resource_id: str, track_id: str, track_title: str) -> None:
+        row_items = []
+        for col in range(len(_COLUMNS)):
+            item = QStandardItem()
+            item.setEditable(False)
+            row_items.append(item)
 
-            row_items[_COL_STATUS].setData("waiting", _STATUS_ROLE)
-            row_items[_COL_STATUS].setData(res.id, _RESOURCE_ID_ROLE)
+        row_items[_COL_STATUS].setText("⏳")
+        row_items[_COL_NAME].setText(track_title)
+        row_items[_COL_TYPE].setText("")
+        row_items[_COL_PROGRESS].setText("0")
+        row_items[_COL_SPEED].setText("")
+        row_items[_COL_SIZE].setText("")
+        row_items[_COL_PATH].setText("")
 
-            self._model.appendRow(row_items)
+        row_items[_COL_STATUS].setData("waiting", _STATUS_ROLE)
+        row_items[_COL_STATUS].setData(track_id, _TRACK_ID_ROLE)
 
-    def _find_row_by_resource(self, resource_id: str) -> int | None:
+        self._model.appendRow(row_items)
+
+    def _find_row_by_track(self, track_id: str) -> int | None:
         for row in range(self._model.rowCount()):
             item = self._model.item(row, _COL_STATUS)
-            if item and item.data(_RESOURCE_ID_ROLE) == resource_id:
+            if item and item.data(_TRACK_ID_ROLE) == track_id:
                 return row
         return None
 
@@ -279,12 +285,20 @@ class DownloadPanel(QWidget):
     # Signal handlers
     # ------------------------------------------------------------------
 
-    def _on_progress(
-        self, resource_id: str, downloaded: float, total: float
+    def _on_track_added(
+        self, resource_id: str, track_id: str, track_title: str
     ) -> None:
-        row = self._find_row_by_resource(resource_id)
+        self._add_track_row(resource_id, track_id, track_title)
+        self._update_total_bar()
+
+    def _on_progress(
+        self, track_id: str, downloaded: float, total: float
+    ) -> None:
+        row = self._find_row_by_track(track_id)
         if row is None:
-            return
+            # Track row may not exist yet; create it on first progress
+            self._add_track_row("", track_id, track_id)
+            row = self._model.rowCount() - 1
 
         status_item = self._model.item(row, _COL_STATUS)
         if status_item and status_item.data(_STATUS_ROLE) == "waiting":
@@ -293,20 +307,24 @@ class DownloadPanel(QWidget):
 
         prog_item = self._model.item(row, _COL_PROGRESS)
         if prog_item:
-            # total is always 0 from GuiOutput (no Content-Length available),
-            # so use indeterminate progress display
             if total > 0:
                 pct = int(downloaded / total * 100)
                 prog_item.setText(str(pct))
             else:
                 prog_item.setText("...")
 
+        # Start elapsed timer on first progress (not button click)
+        if not self._has_progress_started:
+            self._has_progress_started = True
+            self._start_time = time.time()
+            self._elapsed_timer.start(1000)
+
         self._update_total_bar()
 
     def _on_complete(
-        self, resource_id: str, success: bool, path_or_error: str
+        self, track_id: str, success: bool, path_or_error: str
     ) -> None:
-        row = self._find_row_by_resource(resource_id)
+        row = self._find_row_by_track(track_id)
         if row is None:
             return
 
@@ -351,14 +369,15 @@ class DownloadPanel(QWidget):
     @asyncSlot()
     async def _on_start_clicked(self) -> None:
         if not self._resources:
-            self._status_label.setText("沒有待下載的資源")
+            QMessageBox.warning(self, "提示", "沒有待下載的資源")
             return
 
+        self._reset_model()
         self._start_btn.setEnabled(False)
         self._pause_btn.setEnabled(True)
         self._cancel_btn.setEnabled(True)
-        self._start_time = time.time()
-        self._elapsed_timer.start(1000)
+        self._start_time = None
+        self._has_progress_started = False
 
         options = self.build_options()
         await self._manager.start_download(self._resources, options)
@@ -425,7 +444,7 @@ class DownloadPanel(QWidget):
 
     def _update_total_bar(self) -> None:
         total = self._model.rowCount()
-        self._total_bar.setMaximum(total)
+        self._total_bar.setMaximum(total if total > 0 else 100)
         self._total_bar.setValue(self._done_count)
         self._count_label.setText(f"{self._done_count} / {total}")
 

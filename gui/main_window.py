@@ -42,7 +42,7 @@ class MainWindow(QMainWindow):
 
     def __init__(self) -> None:
         super().__init__()
-        self.setWindowTitle("tiddl-gui")
+        self.setWindowTitle("tiddl-gui v3.4.4a1")
         self.resize(1100, 700)
 
         self._client = AsyncTidalClient(self)
@@ -152,7 +152,9 @@ class MainWindow(QMainWindow):
 
     def _build_central_widget(self) -> None:
         splitter = QSplitter(Qt.Orientation.Horizontal)
-
+        splitter.setStyleSheet(
+            "QSplitter::handle { background: #555; width: 3px; }"
+        )
         splitter.addWidget(self._resource_panel)
         splitter.addWidget(self._download_panel)
         splitter.setStretchFactor(0, 2)

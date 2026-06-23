@@ -3,6 +3,7 @@ from __future__ import annotations
 from typing import TYPE_CHECKING, Optional, cast
 
 from PySide6.QtCore import Qt, Signal
+from PySide6.QtGui import QShortcut, QKeySequence
 from PySide6.QtWidgets import (
     QAbstractItemView,
     QCheckBox,
@@ -171,6 +172,9 @@ class ResourcePanel(QWidget):
         search_row = QHBoxLayout()
         self._search_input = QLineEdit()
         self._search_input.setPlaceholderText("輸入搜尋關鍵字…")
+        # Ctrl+Return triggers search
+        ctrl_return = QShortcut(QKeySequence("Ctrl+Return"), self._search_input)
+        ctrl_return.activated.connect(self._do_search)
         search_row.addWidget(self._search_input, 1)
 
         self._search_num = QSpinBox()
@@ -217,8 +221,9 @@ class ResourcePanel(QWidget):
         self._search_table.setSelectionMode(
             QAbstractItemView.SelectionMode.MultiSelection
         )
-        layout.addWidget(QLabel("搜尋結果："))
+
         layout.addWidget(self._search_table)
+        self._search_table.cellDoubleClicked.connect(self._add_search_to_queue)
 
         self._search_error_label = QLabel()
         self._search_error_label.setStyleSheet("color: red;")

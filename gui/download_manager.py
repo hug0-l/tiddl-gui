@@ -31,6 +31,19 @@ class _TaskStub:
         self.description = description
 
 
+class _ItemDisplay:
+    """Helper to build display names for Track/Video items."""
+
+    @staticmethod
+    def name(item: Track | Video) -> str:
+        artist = ""
+        if isinstance(item, Track):
+            artist = item.artist.name if item.artist else (item.artists[0].name if item.artists else "")
+        elif isinstance(item, Video):
+            artist = item.artist.name if item.artist else (item.artists[0].name if item.artists else "")
+        return f"{artist} - {item.title}" if artist else item.title
+
+
 class GuiOutput:
     """Bridge between Downloader RichOutput calls and DownloadManager signals.
 
@@ -39,9 +52,9 @@ class GuiOutput:
     so that Downloader can use it directly.
     """
 
-    def __init__(self, manager: DownloadManager, resource_id: str):
+    def __init__(self, manager: DownloadManager, track_id: str):
         self._manager = manager
-        self._resource_id = resource_id
+        self._track_id = track_id
         self._task_id_counter = 0
         self._task_bytes: dict[int, float] = {}
 
@@ -59,7 +72,7 @@ class GuiOutput:
         self._task_bytes[task_id] = self._task_bytes.get(task_id, 0) + size
         downloaded = self._task_bytes[task_id]
         self._manager.download_progress.emit(
-            self._resource_id, float(downloaded), float(0)
+            self._track_id, float(downloaded), float(0)
         )
 
     def download_finish(self, task_id: int):
@@ -73,12 +86,12 @@ class GuiOutput:
             success = "Error" not in result_message
             if success and item_path:
                 self._manager.download_complete.emit(
-                    self._resource_id, True, str(item_path)
+                    self._track_id, True, str(item_path)
                 )
             else:
                 err_msg = result_message.strip("[]")
                 self._manager.download_complete.emit(
-                    self._resource_id, False, err_msg
+                    self._track_id, False, err_msg
                 )
 
     @property
@@ -96,12 +109,15 @@ class DownloadManager(QObject):
 
     Signals
     -------
-    download_progress : resource_id, bytes_downloaded, total_bytes
-    download_complete : resource_id, success, file_path_or_error
+    track_added : resource_id, track_id, track_title
+        Emitted when a new track is resolved from a resource.
+    download_progress : track_id, bytes_downloaded, total_bytes
+    download_complete : track_id, success, file_path_or_error
     all_downloads_complete
     status_update : plain-text status message
     """
 
+    track_added = Signal(str, str, str)
     download_progress = Signal(str, float, float)
     download_complete = Signal(str, bool, str)
     all_downloads_complete = Signal()
@@ -147,6 +163,8 @@ class DownloadManager(QObject):
         self._cancelled.clear()
         self._paused.set()
 
+        self.status_update.emit("正在準備下載…")
+
         api = await self._client.get_api()
 
         downloader_opts = self._build_downloader_options(options)
@@ -171,8 +189,6 @@ class DownloadManager(QObject):
                 if self._cancelled.is_set():
                     break
                 await self._paused.wait()
-                # Create per-resource GuiOutput so signals map to correct rows
-                downloader.rich_output = GuiOutput(self, resource.id)
                 await self._handle_resource(api, downloader, resource, options)
         except Exception as exc:
             self.status_update.emit(f"下載任務異常：{exc}")
@@ -244,17 +260,17 @@ class DownloadManager(QObject):
 
         resolver = ResourceResolver(api=api)
 
-        async def handle_item(
-            item: Track | Video,
-            file_path: Path,
-        ) -> tuple[Path | None, Track | Video]:
+        async for item, file_path in resolver.resolve(resource, options):
             if self._cancelled.is_set():
-                return None, item
+                return
             await self._paused.wait()
-            dl_path, _was_downloaded = await downloader.download(
+
+            track_id = f"{resource.id}/{item.id}"
+            track_title = _ItemDisplay.name(item)
+            self.track_added.emit(resource.id, track_id, track_title)
+
+            downloader.rich_output = GuiOutput(self, track_id)
+
+            _dl_path, _was_downloaded = await downloader.download(
                 item=item, file_path=file_path
             )
-            return dl_path, item
-
-        async for item, file_path in resolver.resolve(resource, options):
-            await handle_item(item, file_path)

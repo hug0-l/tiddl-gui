@@ -11,7 +11,12 @@ DOLBY_CODECS = ["eac3", "ac4"]
 
 def parse_manifest_XML(xml_content: str):
     """
-    Parses XML manifest file of the track.
+    Parses DASH MPD XML manifest.
+
+    Returns (init_url_or_none, segment_urls, codecs).
+    - init_url: the init segment URL (None if no separate init)
+    - segment_urls: list of media segment URLs in order (with $Number$ resolved)
+    - codecs: the audio codec string
     """
 
     NS = "{urn:mpeg:dash:schema:mpd:2011}"
@@ -30,27 +35,43 @@ def parse_manifest_XML(xml_content: str):
     if segmentElement is None:
         raise ValueError("SegmentTemplate element not found")
 
-    url_template = segmentElement.get("media")
-    if url_template is None:
+    # Init URL — must be downloaded FIRST
+    init_template = segmentElement.get("initialization")
+    init_url: str | None = None
+    if init_template:
+        init_url = init_template
+
+    # Media URL template with $Number$ placeholder
+    media_template = segmentElement.get("media")
+    if media_template is None:
         raise ValueError("No `media` attribute in SegmentTemplate")
 
+    # Start number for $Number$ (defaults to 1)
+    start_number = int(segmentElement.get("startNumber", "1"))
+
+    # Parse segment timeline
     timelineElements = segmentElement.findall(f"{NS}SegmentTimeline/{NS}S")
     if not timelineElements:
         raise ValueError("SegmentTimeline elements not found")
 
-    total = 0
+    # Count total segments: each <S> is 1 segment, + "r" repeats
+    segment_count = 0
     for element in timelineElements:
-        total += 1
+        segment_count += 1  # the element itself
         count = element.get("r")
         if count is not None:
-            total += int(count)
+            segment_count += int(count)  # repeats
 
-    urls = [url_template.replace("$Number$", str(i)) for i in range(0, total + 1)]
+    # Generate segment URLs — start from startNumber
+    urls = [
+        media_template.replace("$Number$", str(i))
+        for i in range(start_number, start_number + segment_count)
+    ]
 
-    return urls, codecs
+    return init_url, urls, codecs
 
 
-def parse_track_stream(track_stream: TrackStream) -> tuple[list[str], str]:
+def parse_track_stream(track_stream: TrackStream) -> tuple[list[str], str, str | None]:
     """
     Parse URLs and file extension from `track_stream`
 
@@ -60,6 +81,9 @@ def parse_track_stream(track_stream: TrackStream) -> tuple[list[str], str]:
     | HIGH            | m4a        | application/vnd.tidal.bts | audio/mp4  |
     | LOSSLESS        | flac       | application/vnd.tidal.bts | audio/flac |
     | HI_RES_LOSSLESS | m4a        | application/dash+xml      | audio/mp4  |
+
+    Returns (urls, file_extension, init_url).
+    - init_url is the DASH init segment URL, or None for BTS manifests.
     """
 
     class TrackManifest(BaseModel):
@@ -74,9 +98,10 @@ def parse_track_stream(track_stream: TrackStream) -> tuple[list[str], str]:
         case "application/vnd.tidal.bts":
             track_manifest = TrackManifest.model_validate_json(decoded_manifest)
             urls, codecs = track_manifest.urls, track_manifest.codecs
+            init_url = None
 
         case "application/dash+xml":
-            urls, codecs = parse_manifest_XML(decoded_manifest)
+            init_url, urls, codecs = parse_manifest_XML(decoded_manifest)
 
     if codecs == "flac":
         file_extension = ".flac"
@@ -87,7 +112,7 @@ def parse_track_stream(track_stream: TrackStream) -> tuple[list[str], str]:
     else:
         raise ValueError(f"Unknown codecs `{codecs}` (trackId {track_stream.trackId}")
 
-    return urls, file_extension
+    return urls, file_extension, init_url
 
 
 def parse_video_stream(video_stream: VideoStream) -> list[str]:

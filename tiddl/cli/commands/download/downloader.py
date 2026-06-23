@@ -174,22 +174,58 @@ class Downloader:
                     return None, False
 
             except ApiError as e:
-                log.error(f"{item.id=} {e=}")
-                self.rich_output.console.print(
-                    f"[red]Error [{vibrant_color}]{item.title}[/] - {e.user_message}"
-                )
-                return None, False
+                # Quality fallback chain: HI_RES_LOSSLESS → LOSSLESS → HIGH
+                if self.track_quality == "HI_RES_LOSSLESS":
+                    log.warning(f"Max quality failed for {item.id}, trying fallbacks")
+                    for fallback_q in ("LOSSLESS", "HIGH"):
+                        try:
+                            stream = await self.api.get_track_stream(
+                                track_id=item.id, quality=fallback_q
+                            )
+                            self.rich_output.console.print(
+                                f"[yellow]'{item.title}' not available in Max, "
+                                f"using {'High' if fallback_q == 'LOSSLESS' else 'Normal'}[/]"
+                            )
+                            break
+                        except ApiError:
+                            continue
+                    else:
+                        # All fallbacks failed
+                        log.error(f"all qualities failed for {item.id=}")
+                        self.rich_output.console.print(
+                            f"[red]'{item.title}' unavailable at any quality[/]"
+                        )
+                        return None, False
+                else:
+                    log.error(f"{item.id=} {e=}")
+                    self.rich_output.console.print(
+                        f"[red]Error [{vibrant_color}]{item.title}[/] - {e.user_message}"
+                    )
+                    return None, False
 
-            urls, _ = parse_track_stream(stream)
+            urls, _, init_url_or_none = parse_track_stream(stream)
+
+            # Recompute filename based on actual stream quality (may differ from
+            # requested quality due to fallback)
+            filename = get_existing_track_filename(
+                stream.audioQuality, stream.audioQuality, file_path
+            )
             download_path = self.get_path(self.download_path, filename)
 
             quality_string = track_qualities_color[stream.audioQuality]
 
             if (
-                stream.audioQuality in ["HI_RES_LOSSLESS", "LOSSLESS"]
+                stream.audioQuality == "LOSSLESS"
                 and stream.audioMode == "STEREO"
             ):
                 quality_string = f"{quality_string} {stream.bitDepth}-bit, {(stream.sampleRate or 0) / 1000:.1f} kHz"
+                should_extract_flac = True
+            elif (
+                stream.audioQuality == "HI_RES_LOSSLESS"
+                and stream.audioMode == "STEREO"
+            ):
+                quality_string = f"{quality_string} {stream.bitDepth}-bit, {(stream.sampleRate or 0) / 1000:.1f} kHz"
+                # HI_RES_LOSSLESS = DASH fMP4 containing FLAC → need extraction
                 should_extract_flac = True
             else:
                 download_path = download_path.with_suffix(".m4a")
@@ -208,7 +244,14 @@ class Downloader:
             ) as tmp:
                 session = await self._get_session()
                 async with aiofiles.open(tmp.name, "wb") as f:
-                    for url in urls:
+                    # For DASH manifests, download init segment FIRST (contains stream header)
+                    # Then download all media segments in order
+                    all_urls: list[str] = []
+                    if init_url_or_none:
+                        all_urls.append(init_url_or_none)
+                    all_urls.extend(urls)
+
+                    for url in all_urls:
                         async with session.get(url) as resp:
                             async for chunk in resp.content.iter_chunked(
                                 CHUNK_SIZE

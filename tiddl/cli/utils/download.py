@@ -10,11 +10,12 @@ def get_existing_track_filename(
 ) -> Path:
     """
     Predict track extension.
+    
+    Only LOSSLESS (CD-quality FLAC via BTS manifest) produces .flac files.
+    HI_RES_LOSSLESS is delivered as AAC-in-MP4 via DASH, so it uses .m4a.
     """
 
-    FLAC_QUALITIES: list[TrackQuality] = ["LOSSLESS", "HI_RES_LOSSLESS"]
-
-    if download_quality in FLAC_QUALITIES and track_quality in FLAC_QUALITIES:
+    if download_quality == "LOSSLESS" and track_quality == "LOSSLESS":
         extension = ".flac"
     else:
         extension = ".m4a"

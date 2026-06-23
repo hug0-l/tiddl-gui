@@ -49,7 +49,7 @@ class MainWindow(QMainWindow):
         self._download_manager = DownloadManager(self._client, CONFIG, self)
 
         self._resource_panel = ResourcePanel(self._client, self)
-        self._download_panel = DownloadPanel(self._download_manager, self)
+        self._download_panel = DownloadPanel(self._download_manager, self._resource_panel, self)
 
         self._build_menu_bar()
         self._build_tool_bar()

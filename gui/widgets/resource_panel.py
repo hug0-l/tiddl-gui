@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from typing import TYPE_CHECKING, Optional, cast
+from typing import TYPE_CHECKING, Optional
 
 from PySide6.QtCore import Qt, Signal
 from PySide6.QtGui import QShortcut, QKeySequence
@@ -110,7 +110,6 @@ class ResourcePanel(QWidget):
         self._build_url_tab()
         self._build_search_tab()
         self._build_favorites_tab()
-        self._build_queue_tab()
         layout.addWidget(self._tabs)
 
         self._client.search_results.connect(self._on_search_results)
@@ -280,30 +279,6 @@ class ResourcePanel(QWidget):
 
         self._tabs.addTab(tab, "我的最愛")
 
-    def _build_queue_tab(self) -> None:
-        tab = QWidget()
-        layout = QVBoxLayout(tab)
-
-        self._queue_table = QTableWidget(0, 4)
-        self._queue_table.setHorizontalHeaderLabels(["Type", "ID", "URL", ""])
-        self._queue_table.horizontalHeader().setStretchLastSection(True)
-        self._queue_table.setEditTriggers(
-            QAbstractItemView.EditTrigger.NoEditTriggers
-        )
-        self._queue_table.setSelectionBehavior(
-            QAbstractItemView.SelectionBehavior.SelectRows
-        )
-        layout.addWidget(self._queue_table)
-
-        btn_row = QHBoxLayout()
-        clear_btn = QPushButton("清空")
-        clear_btn.clicked.connect(self._clear_queue)
-        btn_row.addWidget(clear_btn)
-        btn_row.addStretch()
-        layout.addLayout(btn_row)
-
-        self._tabs.addTab(tab, "下載佇列")
-
     # ------------------------------------------------------------------
     # URL tab
     # ------------------------------------------------------------------
@@ -363,9 +338,7 @@ class ResourcePanel(QWidget):
                 self._resources.append(result.resource)
                 added += 1
         if added > 0:
-            self._refresh_queue_table()
             self.resources_changed.emit()
-            self._tabs.setCurrentIndex(3)
             self._url_error_label.setStyleSheet("color: green;")
             self._url_error_label.setText(f"✅ 已加入 {added} 個資源到佇列")
         else:
@@ -469,7 +442,7 @@ class ResourcePanel(QWidget):
                 tid = _display_id(th.value)
                 self._search_results.append((th_type, name, tid))
                 try:
-                    res = cast(TidalResource, TidalResource(type=th_type, id=tid))
+                    res = TidalResource(type=th_type, id=tid)  # type: ignore[arg-type]
                     self._resources.append(res)
                     auto_added = True
                 except Exception:
@@ -516,9 +489,7 @@ class ResourcePanel(QWidget):
             self._search_table.setItem(i, 4, QTableWidgetItem(tid))
 
         if auto_added:
-            self._refresh_queue_table()
             self.resources_changed.emit()
-            self._tabs.setCurrentIndex(3)
             self._search_error_label.setStyleSheet("color: green;")
             self._search_error_label.setText("✅ Top Hit 已自動加入佇列")
 
@@ -540,16 +511,12 @@ class ResourcePanel(QWidget):
             if row < len(self._search_results):
                 rtype, _name, tid = self._search_results[row]
                 try:
-                    res = cast(
-                        TidalResource, TidalResource(type=rtype, id=tid)
-                    )
+                    res = TidalResource(type=rtype, id=tid)  # type: ignore[arg-type]
                     self._resources.append(res)
                     added += 1
                 except Exception:
                     pass
-        self._refresh_queue_table()
         self.resources_changed.emit()
-        self._tabs.setCurrentIndex(3)
         self._search_error_label.setStyleSheet("color: green;")
         self._search_error_label.setText(f"✅ 已加入 {added} 個資源到佇列")
 
@@ -591,43 +558,13 @@ class ResourcePanel(QWidget):
                 for rid in ids:
                     try:
                         self._resources.append(
-                            cast(
-                                TidalResource,
-                                TidalResource(type=rt, id=rid),
-                            )
+                            TidalResource(type=rt, id=rid)  # type: ignore[arg-type]
                         )
                         added += 1
                     except Exception:
                         pass
         if added > 0:
-            self._refresh_queue_table()
             self.resources_changed.emit()
-            self._tabs.setCurrentIndex(3)
             self._fav_stats_label.setText(f"✅ 已加入 {added} 個資源到佇列")
 
-    # ------------------------------------------------------------------
-    # Queue tab
-    # ------------------------------------------------------------------
 
-    def _refresh_queue_table(self) -> None:
-        self._queue_table.setRowCount(len(self._resources))
-        for i, res in enumerate(self._resources):
-            self._queue_table.setItem(i, 0, QTableWidgetItem(res.type))
-            self._queue_table.setItem(i, 1, QTableWidgetItem(res.id))
-            self._queue_table.setItem(i, 2, QTableWidgetItem(res.url))
-            remove_btn = QPushButton("移除")
-            remove_btn.clicked.connect(
-                lambda checked, row=i: self._remove_from_queue(row)
-            )
-            self._queue_table.setCellWidget(i, 3, remove_btn)
-
-    def _remove_from_queue(self, row: int) -> None:
-        if 0 <= row < len(self._resources):
-            del self._resources[row]
-            self._refresh_queue_table()
-            self.resources_changed.emit()
-
-    def _clear_queue(self) -> None:
-        self._resources.clear()
-        self._refresh_queue_table()
-        self.resources_changed.emit()

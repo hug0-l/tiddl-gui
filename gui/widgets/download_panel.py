@@ -4,12 +4,12 @@ import time
 from pathlib import Path
 from typing import TYPE_CHECKING, Optional
 
-from PySide6.QtCore import QModelIndex, QPoint, Qt, QSize, QTimer
+from PySide6.QtCore import QModelIndex, Qt, QTimer
+
 from PySide6.QtGui import (
     QBrush,
     QColor,
     QDesktopServices,
-    QPainter,
     QStandardItem,
     QStandardItemModel,
 )
@@ -18,11 +18,8 @@ from PySide6.QtWidgets import (
     QHBoxLayout,
     QHeaderView,
     QLabel,
-    QMessageBox,
     QProgressBar,
     QPushButton,
-    QStyledItemDelegate,
-    QStyleOptionViewItem,
     QTreeView,
     QVBoxLayout,
     QWidget,
@@ -34,6 +31,7 @@ from tiddl.cli.utils.resource import TidalResource
 
 if TYPE_CHECKING:
     from gui.download_manager import DownloadManager
+    from gui.widgets.resource_panel import ResourcePanel
 
 # Column indices
 _COL_STATUS = 0
@@ -48,46 +46,7 @@ _COLUMNS = ["Status", "Name", "Type", "Progress", "Speed", "Size", "Path"]
 
 # Custom data roles
 _STATUS_ROLE = Qt.ItemDataRole.UserRole + 1
-_TRACK_ID_ROLE = Qt.ItemDataRole.UserRole + 2
-
-
-class ProgressBarDelegate(QStyledItemDelegate):
-    """Renders a QProgressBar inside the progress column.
-
-    Supports indeterminate mode when the display text is "...".
-    """
-
-    def paint(
-        self, painter: QPainter, option: QStyleOptionViewItem, index: QModelIndex
-    ) -> None:
-        progress = index.data(Qt.ItemDataRole.DisplayRole)
-        if progress is None:
-            super().paint(painter, option, index)
-            return
-
-        bar = QProgressBar()
-        if progress == "...":
-            bar.setRange(0, 0)  # indeterminate mode
-        else:
-            try:
-                pct = float(progress)
-            except (ValueError, TypeError):
-                pct = 0.0
-            bar.setRange(0, 100)
-            bar.setValue(int(pct))
-        bar.resize(option.rect.size())
-        bar.setMinimumHeight(18)
-        bar.setMaximumHeight(24)
-
-        painter.save()
-        painter.translate(option.rect.topLeft())
-        bar.render(painter, target_offset=QPoint(0, 0))
-        painter.restore()
-
-    def sizeHint(
-        self, option: QStyleOptionViewItem, index: QModelIndex
-    ) -> QSize:
-        return QSize(120, 24)
+_RESOURCE_ID_ROLE = Qt.ItemDataRole.UserRole + 2
 
 
 class DownloadPanel(QWidget):
@@ -96,24 +55,26 @@ class DownloadPanel(QWidget):
     Layout
     ------
     - Top: Settings override row (quality selectors)
-    - Middle: QTreeView with per-track progress rows
+    - Middle: QTreeView with progress-per-resource
     - Bottom: Totals bar + controls
     """
 
     def __init__(
         self,
         download_manager: DownloadManager,
+        resource_panel: Optional[ResourcePanel] = None,
         parent: Optional[QWidget] = None,
     ):
         super().__init__(parent)
         self._manager = download_manager
+        self._resource_panel = resource_panel
         self._model = QStandardItemModel(0, len(_COLUMNS))
         self._resources: list[TidalResource] = []
+        self._progress_bars: dict[str, QProgressBar] = {}
         self._done_count = 0
         self._start_time: float | None = None
         self._elapsed_timer = QTimer(self)
         self._elapsed_timer.timeout.connect(self._update_elapsed)
-        self._has_progress_started = False
 
         self._build_ui()
         self._connect_signals()
@@ -156,9 +117,8 @@ class DownloadPanel(QWidget):
         header = self._tree.header()
         header.setStretchLastSection(True)
         header.setSectionResizeMode(
-            _COL_STATUS, QHeaderView.ResizeMode.Fixed
+            _COL_STATUS, QHeaderView.ResizeMode.ResizeToContents
         )
-        header.resizeSection(_COL_STATUS, 36)
         header.setSectionResizeMode(_COL_NAME, QHeaderView.ResizeMode.Stretch)
         header.setSectionResizeMode(
             _COL_TYPE, QHeaderView.ResizeMode.ResizeToContents
@@ -173,9 +133,6 @@ class DownloadPanel(QWidget):
         )
         header.setSectionResizeMode(_COL_PATH, QHeaderView.ResizeMode.Stretch)
 
-        self._tree.setItemDelegateForColumn(
-            _COL_PROGRESS, ProgressBarDelegate(self._tree)
-        )
         self._tree.clicked.connect(self._on_tree_clicked)
         layout.addWidget(self._tree, 1)
 
@@ -226,7 +183,6 @@ class DownloadPanel(QWidget):
         layout.addLayout(ctrl_row)
 
     def _connect_signals(self) -> None:
-        self._manager.track_added.connect(self._on_track_added)
         self._manager.download_progress.connect(self._on_progress)
         self._manager.download_complete.connect(self._on_complete)
         self._manager.all_downloads_complete.connect(self._on_all_complete)
@@ -252,32 +208,38 @@ class DownloadPanel(QWidget):
     def _reset_model(self) -> None:
         self._model.removeRows(0, self._model.rowCount())
         self._done_count = 0
-        self._has_progress_started = False
+        self._progress_bars.clear()
+        for res in self._resources:
+            row_items = []
+            for col in range(len(_COLUMNS)):
+                item = QStandardItem()
+                item.setEditable(False)
+                row_items.append(item)
 
-    def _add_track_row(self, resource_id: str, track_id: str, track_title: str) -> None:
-        row_items = []
-        for col in range(len(_COLUMNS)):
-            item = QStandardItem()
-            item.setEditable(False)
-            row_items.append(item)
+            row_items[_COL_STATUS].setText("⏳")
+            row_items[_COL_STATUS].setData("waiting", _STATUS_ROLE)
+            row_items[_COL_STATUS].setData(res.id, _RESOURCE_ID_ROLE)
+            row_items[_COL_NAME].setText(f"{res.type}:{res.id}")
+            row_items[_COL_TYPE].setText(res.type)
+            row_items[_COL_SPEED].setText("")
+            row_items[_COL_SIZE].setText("")
+            row_items[_COL_PATH].setText(res.url)
 
-        row_items[_COL_STATUS].setText("⏳")
-        row_items[_COL_NAME].setText(track_title)
-        row_items[_COL_TYPE].setText("")
-        row_items[_COL_PROGRESS].setText("0")
-        row_items[_COL_SPEED].setText("")
-        row_items[_COL_SIZE].setText("")
-        row_items[_COL_PATH].setText("")
+            self._model.appendRow(row_items)
 
-        row_items[_COL_STATUS].setData("waiting", _STATUS_ROLE)
-        row_items[_COL_STATUS].setData(track_id, _TRACK_ID_ROLE)
+            # Create real QProgressBar widget for this row
+            bar = QProgressBar()
+            bar.setRange(0, 100)
+            bar.setValue(0)
+            bar.setTextVisible(True)
+            idx = self._model.index(self._model.rowCount() - 1, _COL_PROGRESS)
+            self._tree.setIndexWidget(idx, bar)
+            self._progress_bars[res.id] = bar
 
-        self._model.appendRow(row_items)
-
-    def _find_row_by_track(self, track_id: str) -> int | None:
+    def _find_row_by_resource(self, resource_id: str) -> int | None:
         for row in range(self._model.rowCount()):
             item = self._model.item(row, _COL_STATUS)
-            if item and item.data(_TRACK_ID_ROLE) == track_id:
+            if item and item.data(_RESOURCE_ID_ROLE) == resource_id:
                 return row
         return None
 
@@ -285,46 +247,35 @@ class DownloadPanel(QWidget):
     # Signal handlers
     # ------------------------------------------------------------------
 
-    def _on_track_added(
-        self, resource_id: str, track_id: str, track_title: str
-    ) -> None:
-        self._add_track_row(resource_id, track_id, track_title)
-        self._update_total_bar()
-
     def _on_progress(
-        self, track_id: str, downloaded: float, total: float
+        self, resource_id: str, downloaded: float, total: float
     ) -> None:
-        row = self._find_row_by_track(track_id)
+        row = self._find_row_by_resource(resource_id)
         if row is None:
-            # Track row may not exist yet; create it on first progress
-            self._add_track_row("", track_id, track_id)
-            row = self._model.rowCount() - 1
+            return
 
         status_item = self._model.item(row, _COL_STATUS)
         if status_item and status_item.data(_STATUS_ROLE) == "waiting":
             status_item.setData("downloading", _STATUS_ROLE)
             status_item.setText("⬇️")
 
-        prog_item = self._model.item(row, _COL_PROGRESS)
-        if prog_item:
+        bar = self._progress_bars.get(resource_id)
+        if bar:
             if total > 0:
                 pct = int(downloaded / total * 100)
-                prog_item.setText(str(pct))
+                bar.setRange(0, 100)
+                bar.setValue(pct)
+                bar.setFormat(f"{pct}%")
             else:
-                prog_item.setText("...")
-
-        # Start elapsed timer on first progress (not button click)
-        if not self._has_progress_started:
-            self._has_progress_started = True
-            self._start_time = time.time()
-            self._elapsed_timer.start(1000)
+                bar.setRange(0, 0)  # indeterminate
+                bar.setFormat("...")
 
         self._update_total_bar()
 
     def _on_complete(
-        self, track_id: str, success: bool, path_or_error: str
+        self, resource_id: str, success: bool, path_or_error: str
     ) -> None:
-        row = self._find_row_by_track(track_id)
+        row = self._find_row_by_resource(resource_id)
         if row is None:
             return
 
@@ -338,9 +289,11 @@ class DownloadPanel(QWidget):
             path_item = self._model.item(row, _COL_PATH)
             if path_item:
                 path_item.setText(path_or_error)
-            prog_item = self._model.item(row, _COL_PROGRESS)
-            if prog_item:
-                prog_item.setText("100")
+            bar = self._progress_bars.get(resource_id)
+            if bar:
+                bar.setRange(0, 100)
+                bar.setValue(100)
+                bar.setFormat("100%")
         else:
             status_item.setText("❌")
             status_item.setData("error", _STATUS_ROLE)
@@ -368,16 +321,21 @@ class DownloadPanel(QWidget):
 
     @asyncSlot()
     async def _on_start_clicked(self) -> None:
-        if not self._resources:
-            QMessageBox.warning(self, "提示", "沒有待下載的資源")
+        resources = (
+            self._resource_panel.get_resources()
+            if self._resource_panel
+            else []
+        )
+        if not resources:
+            self._status_label.setText("請先在左側面板加入資源")
             return
 
-        self._reset_model()
+        self.set_resources(resources)
         self._start_btn.setEnabled(False)
         self._pause_btn.setEnabled(True)
         self._cancel_btn.setEnabled(True)
-        self._start_time = None
-        self._has_progress_started = False
+        self._start_time = time.time()
+        self._elapsed_timer.start(1000)
 
         options = self.build_options()
         await self._manager.start_download(self._resources, options)
@@ -440,11 +398,12 @@ class DownloadPanel(QWidget):
             "download_path": CONFIG.download.download_path,
             "scan_path": CONFIG.download.scan_path,
             "match_existing_path_case": CONFIG.download.match_existing_path_case,
+            "template": CONFIG.templates.default,
         }
 
     def _update_total_bar(self) -> None:
         total = self._model.rowCount()
-        self._total_bar.setMaximum(total if total > 0 else 100)
+        self._total_bar.setMaximum(total)
         self._total_bar.setValue(self._done_count)
         self._count_label.setText(f"{self._done_count} / {total}")
 

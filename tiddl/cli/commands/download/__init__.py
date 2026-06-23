@@ -403,7 +403,7 @@ def download_callback(
                         },
                     ):
                         track_saved = item
-                        album_saved = ctx.obj.api.get_album(item.album.id)
+                        album_saved = await ctx.obj.api.get_album(item.album.id)
 
                         cover: Cover | None = None
                         save_cover = ("track" in CONFIG.cover.allowed) and CONFIG.cover.save
@@ -570,7 +570,7 @@ def download_callback(
                     await asyncio.gather(*futures)
 
                 case "playlist":
-                    playlist = ctx.obj.api.get_playlist(playlist_uuid=resource.id)
+                    playlist = await ctx.obj.api.get_playlist(playlist_uuid=resource.id)
                     futures = []
                     async for item, file_path in resolver._resolve_playlist(
                         resource,

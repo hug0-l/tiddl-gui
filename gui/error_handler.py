@@ -109,6 +109,4 @@ def install_global_exception_hook() -> None:
     sys.excepthook = _global_excepthook
 
 
-def install_qt_exception_handler() -> None:
-    """Handle Qt exceptions via sys.excepthook (covered by qasync event loop)."""
-    install_global_exception_hook()
+

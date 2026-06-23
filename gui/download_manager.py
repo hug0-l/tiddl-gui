@@ -154,11 +154,10 @@ class DownloadManager(QObject):
         api = await self._client.get_api()
 
         downloader_opts = self._build_downloader_options(options)
-        gui_output = GuiOutput(self, "__all__")
         downloader = Downloader(
             tidal_api=api,
             threads_count=downloader_opts["threads_count"],
-            rich_output=gui_output,
+            rich_output=GuiOutput(self, ""),
             track_quality=downloader_opts["track_quality"],
             video_quality=downloader_opts["video_quality"],
             videos_filter=downloader_opts["videos_filter"],
@@ -176,6 +175,8 @@ class DownloadManager(QObject):
                 if self._cancelled.is_set():
                     break
                 await self._paused.wait()
+                # Create per-resource GuiOutput so signals map to correct rows
+                downloader.rich_output = GuiOutput(self, resource.id)
                 await self._handle_resource(api, downloader, resource, options)
         except Exception as exc:
             self.status_update.emit(f"下載任務異常：{exc}")

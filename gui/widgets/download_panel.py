@@ -345,7 +345,7 @@ class DownloadPanel(QWidget):
         self._start_time = time.time()
         self._elapsed_timer.start(1000)
 
-        options = self._build_options()
+        options = self.build_options()
         await self._manager.start_download(self._resources, options)
 
     def _on_pause_clicked(self) -> None:
@@ -394,7 +394,7 @@ class DownloadPanel(QWidget):
     # Helpers
     # ------------------------------------------------------------------
 
-    def _build_options(self) -> dict:
+    def build_options(self) -> dict:
         return {
             "track_quality": self._track_quality_combo.currentData(),
             "video_quality": self._video_quality_combo.currentData(),

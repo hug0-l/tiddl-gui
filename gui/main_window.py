@@ -28,7 +28,6 @@ from gui.client import AsyncTidalClient
 from gui.download_manager import DownloadManager
 from gui.error_handler import (
     ErrorInfo,
-    handle_api_error,
     show_error_dialog,
     show_warning_notification,
 )
@@ -319,7 +318,7 @@ class MainWindow(QMainWindow):
             show_warning_notification(self, "沒有待下載的資源")
             return
         self._download_panel.set_resources(resources)
-        options = self._download_panel._build_options()
+        options = self._download_panel.build_options()
         await self._download_manager.start_download(resources, options)
 
     def _show_login_dialog(self) -> None:

@@ -151,6 +151,36 @@ class AsyncTidalClient(QObject):
         except Exception as e:
             self.favorites_error.emit(self._wrap_error(e, "無法載入收藏"))
 
+
+    @asyncSlot()
+    async def get_album_info(self, album_id: str) -> dict:
+        """Fetch album metadata + items. Returns dict with album + tracks."""
+        try:
+            api = await self.get_api()
+            album = await api.get_album(int(album_id))
+            items = await api.get_album_items(int(album_id))
+            return {"album": album, "tracks": items}
+        except Exception as e:
+            self.api_error.emit(self._wrap_error(e, "無法載入專輯資訊"))
+            return {}
+
+    @asyncSlot()
+    async def get_playlist_info(self, playlist_id: str) -> dict:
+        """Fetch playlist metadata + items."""
+        try:
+            api = await self.get_api()
+            playlist = await api.get_playlist(playlist_id)
+            items = await api.get_playlist_items(playlist_id)
+            return {"playlist": playlist, "tracks": items}
+        except Exception as e:
+            self.api_error.emit(self._wrap_error(e, "無法載入播放清單"))
+            return {}
+
+    @staticmethod
+    def get_cover_url(cover_id: str, size: int = 640) -> str:
+        """Get Tidal cover image URL from cover ID."""
+        return f"https://resources.tidal.com/images/{cover_id.replace('-', '/')}/{size}x{size}.jpg"
+
     @asyncSlot()
     async def refresh_token(self) -> str | None:
         """Refresh and save token, return new access token or None on failure."""

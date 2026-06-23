@@ -8,6 +8,7 @@ from PySide6.QtWidgets import (
     QAbstractItemView,
     QCheckBox,
     QHBoxLayout,
+    QHeaderView,
     QLabel,
     QLineEdit,
     QPlainTextEdit,
@@ -22,6 +23,8 @@ from PySide6.QtWidgets import (
 from qasync import asyncSlot
 
 from tiddl.cli.utils.resource import TidalResource, ResourceTypeLiteral
+from gui.widgets.resource_detail_dialog import ResourceDetailDialog
+
 from tiddl.core.api.models.base import Search, SearchArtist
 from tiddl.core.api.models.resources import Track, Album, Playlist, Video
 
@@ -142,9 +145,15 @@ class ResourcePanel(QWidget):
         layout.addWidget(parse_btn)
 
         layout.addWidget(QLabel("解析結果："))
-        self._url_results_table = QTableWidget(0, 3)
-        self._url_results_table.setHorizontalHeaderLabels(["Type", "ID", "URL"])
-        self._url_results_table.horizontalHeader().setStretchLastSection(True)
+        self._url_results_table = QTableWidget(0, 4)
+        self._url_results_table.setHorizontalHeaderLabels(
+            ["Type", "ID", "URL", "預覽"]
+        )
+        self._url_results_table.horizontalHeader().setStretchLastSection(False)
+        self._url_results_table.horizontalHeader().setSectionResizeMode(
+            2, QHeaderView.Stretch
+        )
+        self._url_results_table.setColumnWidth(3, 80)
         self._url_results_table.setEditTriggers(
             QAbstractItemView.EditTrigger.NoEditTriggers
         )
@@ -327,6 +336,13 @@ class ResourcePanel(QWidget):
                 self._url_results_table.setItem(
                     i, 2, QTableWidgetItem(result.resource.url)
                 )
+                # Preview button for album/playlist
+                if result.resource.type in ("album", "playlist"):
+                    preview_btn = QPushButton("預覽")
+                    preview_btn.clicked.connect(
+                        lambda checked, row=i: self._preview_resource(row)
+                    )
+                    self._url_results_table.setCellWidget(i, 3, preview_btn)
             elif result.error:
                 err_item = QTableWidgetItem("錯誤")
                 err_item.setForeground(Qt.GlobalColor.red)
@@ -355,6 +371,58 @@ class ResourcePanel(QWidget):
         else:
             self._url_error_label.setStyleSheet("color: red;")
             self._url_error_label.setText("沒有可加入的資源")
+
+    # ------------------------------------------------------------------
+    # URL tab - preview
+    # ------------------------------------------------------------------
+
+    @asyncSlot()
+    async def _preview_resource(self, row: int) -> None:
+        """Open detail dialog for album/playlist at given row."""
+        if row < 0 or row >= len(self._parsed_results):
+            return
+        result = self._parsed_results[row]
+        if not result.resource:
+            return
+
+        resource = result.resource
+        resource_id = resource.id
+        cover_id: str | None = None
+
+        if resource.type == "album":
+            data = await self._client.get_album_info(resource_id)
+            if not data or "album" not in data:
+                self._url_error_label.setText("❌ 無法載入專輯資訊")
+                return
+            cover_id = getattr(data["album"], "cover", None)
+        elif resource.type == "playlist":
+            data = await self._client.get_playlist_info(resource_id)
+            if not data or "playlist" not in data:
+                self._url_error_label.setText("❌ 無法載入播放清單資訊")
+                return
+            cover_id = getattr(data["playlist"], "squareImage", None) or getattr(
+                data["playlist"], "image", None
+            )
+        else:
+            return
+
+        dialog = ResourceDetailDialog(
+            self._client, data, resource.type, cover_id, self
+        )
+        if dialog.exec() == ResourceDetailDialog.DialogCode.Accepted:
+            selected = dialog.selected_tracks
+            if selected:
+                for rtype, rid in selected:
+                    self._resources.append(
+                        cast(TidalResource, TidalResource(type=rtype, id=rid))
+                    )
+                self._refresh_queue_table()
+                self.resources_changed.emit()
+                self._tabs.setCurrentIndex(3)
+                self._url_error_label.setStyleSheet("color: green;")
+                self._url_error_label.setText(
+                    f"✅ 已加入 {len(selected)} 首曲目到佇列"
+                )
 
     # ------------------------------------------------------------------
     # Search tab

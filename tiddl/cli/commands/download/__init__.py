@@ -267,9 +267,9 @@ def download_callback(
 
                         if CONFIG.metadata.lyrics or CONFIG.download.write_lrc_file:
                             try:
-                                lyrics_subtitles = ctx.obj.api.get_track_lyrics(
+                                lyrics_subtitles = (await ctx.obj.api.get_track_lyrics(
                                     item.id
-                                ).subtitles
+                                )).subtitles
                             except Exception as e:
                                 log.error(e)
 
@@ -324,9 +324,9 @@ def download_callback(
 
                 if CONFIG.metadata.album_review:
                     try:
-                        album_review = ctx.obj.api.get_album_review(
+                        album_review = (await ctx.obj.api.get_album_review(
                             album_id=resource.id
-                        ).normalized_text()
+                        )).normalized_text()
                     except Exception as e:
                         log.error(e)
 
@@ -472,7 +472,7 @@ def download_callback(
                     )
 
                 case "album":
-                    album = ctx.obj.api.get_album(album_id=resource.id)
+                    album = await ctx.obj.api.get_album(album_id=resource.id)
                     await download_album(album)
 
                 case "artist":
@@ -494,11 +494,11 @@ def download_callback(
                             if RAISE_ERRORS:
                                 raise
 
-                    def get_all_albums(singles: bool):
+                    async def get_all_albums(singles: bool):
                         offset = 0
 
                         while True:
-                            artist_albums = ctx.obj.api.get_artist_albums(
+                            artist_albums = await ctx.obj.api.get_artist_albums(
                                 artist_id=resource.id,
                                 offset=offset,
                                 filter="EPSANDSINGLES" if singles else "ALBUMS",
@@ -511,11 +511,11 @@ def download_callback(
                             if offset >= artist_albums.totalNumberOfItems:
                                 break
 
-                    def get_all_videos():
+                    async def get_all_videos():
                         offset = 0
 
                         while True:
-                            artist_videos = ctx.obj.api.get_artist_videos(
+                            artist_videos = await ctx.obj.api.get_artist_videos(
                                 resource.id, offset=offset
                             )
 
@@ -524,7 +524,7 @@ def download_callback(
 
                                 try:
                                     if "{album" in template and video.album:
-                                        album = ctx.obj.api.get_album(video.album.id)
+                                        album = await ctx.obj.api.get_album(video.album.id)
                                     else:
                                         album = None
 
@@ -558,14 +558,14 @@ def download_callback(
                             offset += artist_videos.limit
 
                     if VIDEOS_FILTER != "none":
-                        get_all_videos()
+                        await get_all_videos()
 
                     if VIDEOS_FILTER != "only":
                         if SINGLES_FILTER == "include":
-                            get_all_albums(False)
-                            get_all_albums(True)
+                            await get_all_albums(False)
+                            await get_all_albums(True)
                         else:
-                            get_all_albums(SINGLES_FILTER == "only")
+                            await get_all_albums(SINGLES_FILTER == "only")
 
                     await asyncio.gather(*futures)
 

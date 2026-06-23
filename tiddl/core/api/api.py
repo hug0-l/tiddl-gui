@@ -1,6 +1,6 @@
 from typing import Literal, TypeAlias
 
-from requests_cache import DO_NOT_CACHE, EXPIRE_IMMEDIATELY
+from aiohttp_client_cache.cache_control import DO_NOT_CACHE
 
 from .client import TidalClient
 from .models.base import (
@@ -60,18 +60,26 @@ class TidalAPI:
         self.user_id = user_id
         self.country_code = country_code
 
-    def get_album(self, album_id: ID):
-        return self.client.fetch(
+    async def get_album(self, album_id: ID):
+        return await self.client.fetch(
             Album,
             f"albums/{album_id}",
             {"countryCode": self.country_code},
             expire_after=3600,
         )
 
-    def get_album_items(
+    def get_album_sync(self, album_id: ID):
+        return self.client.fetch_sync(
+            Album,
+            f"albums/{album_id}",
+            {"countryCode": self.country_code},
+            expire_after=3600,
+        )
+
+    async def get_album_items(
         self, album_id: ID, limit: int = Limits.ALBUM_ITEMS, offset: int = 0
     ):
-        return self.client.fetch(
+        return await self.client.fetch(
             AlbumItems,
             f"albums/{album_id}/items",
             {
@@ -82,10 +90,24 @@ class TidalAPI:
             expire_after=3600,
         )
 
-    def get_album_items_credits(
+    def get_album_items_sync(
         self, album_id: ID, limit: int = Limits.ALBUM_ITEMS, offset: int = 0
     ):
-        return self.client.fetch(
+        return self.client.fetch_sync(
+            AlbumItems,
+            f"albums/{album_id}/items",
+            {
+                "countryCode": self.country_code,
+                "limit": min(limit, Limits.ALBUM_ITEMS_MAX),
+                "offset": offset,
+            },
+            expire_after=3600,
+        )
+
+    async def get_album_items_credits(
+        self, album_id: ID, limit: int = Limits.ALBUM_ITEMS, offset: int = 0
+    ):
+        return await self.client.fetch(
             AlbumItemsCredits,
             f"albums/{album_id}/items/credits",
             {
@@ -96,29 +118,59 @@ class TidalAPI:
             expire_after=3600,
         )
 
-    def get_album_review(self, album_id: ID):
-        return self.client.fetch(
+    def get_album_items_credits_sync(
+        self, album_id: ID, limit: int = Limits.ALBUM_ITEMS, offset: int = 0
+    ):
+        return self.client.fetch_sync(
+            AlbumItemsCredits,
+            f"albums/{album_id}/items/credits",
+            {
+                "countryCode": self.country_code,
+                "limit": min(limit, Limits.ALBUM_ITEMS_MAX),
+                "offset": offset,
+            },
+            expire_after=3600,
+        )
+
+    async def get_album_review(self, album_id: ID):
+        return await self.client.fetch(
             AlbumReview,
             f"albums/{album_id}/review",
             {"countryCode": self.country_code},
             expire_after=3600,
         )
 
-    def get_artist(self, artist_id: ID):
-        return self.client.fetch(
+    def get_album_review_sync(self, album_id: ID):
+        return self.client.fetch_sync(
+            AlbumReview,
+            f"albums/{album_id}/review",
+            {"countryCode": self.country_code},
+            expire_after=3600,
+        )
+
+    async def get_artist(self, artist_id: ID):
+        return await self.client.fetch(
             Artist,
             f"artists/{artist_id}",
             {"countryCode": self.country_code},
             expire_after=3600,
         )
 
-    def get_artist_videos(
+    def get_artist_sync(self, artist_id: ID):
+        return self.client.fetch_sync(
+            Artist,
+            f"artists/{artist_id}",
+            {"countryCode": self.country_code},
+            expire_after=3600,
+        )
+
+    async def get_artist_videos(
         self,
         artist_id: ID,
         limit: int = Limits.ARTIST_VIDEOS,
         offset: int = 0,
     ):
-        return self.client.fetch(
+        return await self.client.fetch(
             ArtistVideosItems,
             f"artists/{artist_id}/videos",
             {
@@ -129,14 +181,31 @@ class TidalAPI:
             expire_after=3600,
         )
 
-    def get_artist_albums(
+    def get_artist_videos_sync(
+        self,
+        artist_id: ID,
+        limit: int = Limits.ARTIST_VIDEOS,
+        offset: int = 0,
+    ):
+        return self.client.fetch_sync(
+            ArtistVideosItems,
+            f"artists/{artist_id}/videos",
+            {
+                "countryCode": self.country_code,
+                "limit": limit,
+                "offset": offset,
+            },
+            expire_after=3600,
+        )
+
+    async def get_artist_albums(
         self,
         artist_id: ID,
         limit: int = Limits.ARTIST_ALBUMS,
         offset: int = 0,
         filter: Literal["ALBUMS", "EPSANDSINGLES"] = "ALBUMS",
     ):
-        return self.client.fetch(
+        return await self.client.fetch(
             ArtistAlbumsItems,
             f"artists/{artist_id}/albums",
             {
@@ -148,13 +217,32 @@ class TidalAPI:
             expire_after=3600,
         )
 
-    def get_mix_items(
+    def get_artist_albums_sync(
+        self,
+        artist_id: ID,
+        limit: int = Limits.ARTIST_ALBUMS,
+        offset: int = 0,
+        filter: Literal["ALBUMS", "EPSANDSINGLES"] = "ALBUMS",
+    ):
+        return self.client.fetch_sync(
+            ArtistAlbumsItems,
+            f"artists/{artist_id}/albums",
+            {
+                "countryCode": self.country_code,
+                "limit": min(limit, Limits.ARTIST_ALBUMS_MAX),
+                "offset": offset,
+                "filter": filter,
+            },
+            expire_after=3600,
+        )
+
+    async def get_mix_items(
         self,
         mix_id: str,
         limit: int = Limits.MIX_ITEMS,
         offset: int = 0,
     ):
-        return self.client.fetch(
+        return await self.client.fetch(
             MixItems,
             f"mixes/{mix_id}/items",
             {
@@ -165,26 +253,59 @@ class TidalAPI:
             expire_after=3600,
         )
 
-    def get_favorites(self):
-        return self.client.fetch(
+    def get_mix_items_sync(
+        self,
+        mix_id: str,
+        limit: int = Limits.MIX_ITEMS,
+        offset: int = 0,
+    ):
+        return self.client.fetch_sync(
+            MixItems,
+            f"mixes/{mix_id}/items",
+            {
+                "countryCode": self.country_code,
+                "limit": min(limit, Limits.MIX_ITEMS_MAX),
+                "offset": offset,
+            },
+            expire_after=3600,
+        )
+
+    async def get_favorites(self):
+        return await self.client.fetch(
             Favorites,
             f"users/{self.user_id}/favorites/ids",
             {"countryCode": self.country_code},
-            expire_after=EXPIRE_IMMEDIATELY,
+            expire_after=DO_NOT_CACHE,
         )
 
-    def get_playlist(self, playlist_uuid: str):
-        return self.client.fetch(
+    def get_favorites_sync(self):
+        return self.client.fetch_sync(
+            Favorites,
+            f"users/{self.user_id}/favorites/ids",
+            {"countryCode": self.country_code},
+            expire_after=DO_NOT_CACHE,
+        )
+
+    async def get_playlist(self, playlist_uuid: str):
+        return await self.client.fetch(
             Playlist,
             f"playlists/{playlist_uuid}",
             {"countryCode": self.country_code},
-            expire_after=EXPIRE_IMMEDIATELY,
+            expire_after=DO_NOT_CACHE,
         )
 
-    def get_playlist_items(
+    def get_playlist_sync(self, playlist_uuid: str):
+        return self.client.fetch_sync(
+            Playlist,
+            f"playlists/{playlist_uuid}",
+            {"countryCode": self.country_code},
+            expire_after=DO_NOT_CACHE,
+        )
+
+    async def get_playlist_items(
         self, playlist_uuid: str, limit: int = Limits.PLAYLIST_ITEMS, offset: int = 0
     ):
-        return self.client.fetch(
+        return await self.client.fetch(
             PlaylistItems,
             f"playlists/{playlist_uuid}/items",
             {
@@ -192,38 +313,79 @@ class TidalAPI:
                 "limit": min(limit, Limits.PLAYLIST_ITEMS_MAX),
                 "offset": offset,
             },
-            expire_after=EXPIRE_IMMEDIATELY,
+            expire_after=DO_NOT_CACHE,
         )
 
-    def get_search(self, query: str):
-        return self.client.fetch(
+    def get_playlist_items_sync(
+        self, playlist_uuid: str, limit: int = Limits.PLAYLIST_ITEMS, offset: int = 0
+    ):
+        return self.client.fetch_sync(
+            PlaylistItems,
+            f"playlists/{playlist_uuid}/items",
+            {
+                "countryCode": self.country_code,
+                "limit": min(limit, Limits.PLAYLIST_ITEMS_MAX),
+                "offset": offset,
+            },
+            expire_after=DO_NOT_CACHE,
+        )
+
+    async def get_search(self, query: str):
+        return await self.client.fetch(
             Search,
             "search",
             {"countryCode": self.country_code, "query": query},
             expire_after=DO_NOT_CACHE,
         )
 
-    def get_session(self):
-        return self.client.fetch(SessionResponse, "sessions", expire_after=DO_NOT_CACHE)
+    def get_search_sync(self, query: str):
+        return self.client.fetch_sync(
+            Search,
+            "search",
+            {"countryCode": self.country_code, "query": query},
+            expire_after=DO_NOT_CACHE,
+        )
 
-    def get_track_lyrics(self, track_id: ID):
-        return self.client.fetch(
+    async def get_session(self):
+        return await self.client.fetch(SessionResponse, "sessions", expire_after=DO_NOT_CACHE)
+
+    def get_session_sync(self):
+        return self.client.fetch_sync(SessionResponse, "sessions", expire_after=DO_NOT_CACHE)
+
+    async def get_track_lyrics(self, track_id: ID):
+        return await self.client.fetch(
             TrackLyrics,
             f"tracks/{track_id}/lyrics",
             {"countryCode": self.country_code},
             expire_after=3600,
         )
 
-    def get_track(self, track_id: ID):
-        return self.client.fetch(
+    def get_track_lyrics_sync(self, track_id: ID):
+        return self.client.fetch_sync(
+            TrackLyrics,
+            f"tracks/{track_id}/lyrics",
+            {"countryCode": self.country_code},
+            expire_after=3600,
+        )
+
+    async def get_track(self, track_id: ID):
+        return await self.client.fetch(
             Track,
             f"tracks/{track_id}",
             {"countryCode": self.country_code},
             expire_after=3600,
         )
 
-    def get_track_stream(self, track_id: ID, quality: TrackQuality):
-        return self.client.fetch(
+    def get_track_sync(self, track_id: ID):
+        return self.client.fetch_sync(
+            Track,
+            f"tracks/{track_id}",
+            {"countryCode": self.country_code},
+            expire_after=3600,
+        )
+
+    async def get_track_stream(self, track_id: ID, quality: TrackQuality):
+        return await self.client.fetch(
             TrackStream,
             f"tracks/{track_id}/playbackinfopostpaywall",
             {
@@ -234,16 +396,48 @@ class TidalAPI:
             expire_after=DO_NOT_CACHE,
         )
 
-    def get_video(self, video_id: ID):
-        return self.client.fetch(
+    def get_track_stream_sync(self, track_id: ID, quality: TrackQuality):
+        return self.client.fetch_sync(
+            TrackStream,
+            f"tracks/{track_id}/playbackinfopostpaywall",
+            {
+                "audioquality": quality,
+                "playbackmode": "STREAM",
+                "assetpresentation": "FULL",
+            },
+            expire_after=DO_NOT_CACHE,
+        )
+
+    async def get_video(self, video_id: ID):
+        return await self.client.fetch(
             Video,
             f"videos/{video_id}",
             {"countryCode": self.country_code},
             expire_after=3600,
         )
 
-    def get_video_stream(self, video_id: ID, quality: StreamVideoQuality):
-        return self.client.fetch(
+    def get_video_sync(self, video_id: ID):
+        return self.client.fetch_sync(
+            Video,
+            f"videos/{video_id}",
+            {"countryCode": self.country_code},
+            expire_after=3600,
+        )
+
+    async def get_video_stream(self, video_id: ID, quality: StreamVideoQuality):
+        return await self.client.fetch(
+            VideoStream,
+            f"videos/{video_id}/playbackinfopostpaywall",
+            {
+                "videoquality": quality,
+                "playbackmode": "STREAM",
+                "assetpresentation": "FULL",
+            },
+            expire_after=DO_NOT_CACHE,
+        )
+
+    def get_video_stream_sync(self, video_id: ID, quality: StreamVideoQuality):
+        return self.client.fetch_sync(
             VideoStream,
             f"videos/{video_id}/playbackinfopostpaywall",
             {

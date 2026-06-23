@@ -3,7 +3,7 @@ from typing_extensions import Annotated
 
 from tiddl.cli.ctx import Context
 from tiddl.cli.utils.resource import TidalResource
-from tiddl.core.api.models.base import Search, SearchArtist
+from tiddl.core.api.models.base import SearchArtist
 from tiddl.core.api.models.resources import Track, Album, Playlist, Video
 
 from rich.panel import Panel
@@ -50,7 +50,7 @@ def search(
     By default, it searches for all resource types. You can specify which resource types to search for using the `--type` option.
     """
 
-    results: Search = ctx.obj.api.get_search(query=query)
+    results = ctx.obj.api.get_search_sync(query=query)
     table = _prepare_table(query)
 
     results_to_display = []

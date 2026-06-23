@@ -26,7 +26,7 @@ def fav(
     Get your Tidal favorites. You can narrow them to any type of your choice.
     """
 
-    favorites = ctx.obj.api.get_favorites()
+    favorites = ctx.obj.api.get_favorites_sync()
     favorites_dict = favorites.model_dump()
 
     stats: dict[ResourceTypeLiteral, int] = dict()

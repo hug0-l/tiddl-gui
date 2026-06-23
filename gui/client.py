@@ -136,7 +136,7 @@ class AsyncTidalClient(QObject):
         _ = types  # kept for future type-filter support
         try:
             api = await self.get_api()
-            result = await asyncio.to_thread(api.get_search, query)
+            result = await api.get_search(query)
             self.search_results.emit(result)
         except Exception as e:
             self.search_error.emit(self._wrap_error(e, "搜尋失敗"))
@@ -146,7 +146,7 @@ class AsyncTidalClient(QObject):
         """Get favorites and emit favorites_loaded or favorites_error."""
         try:
             api = await self.get_api()
-            favorites = await asyncio.to_thread(api.get_favorites)
+            favorites = await api.get_favorites()
             self.favorites_loaded.emit(favorites.model_dump())
         except Exception as e:
             self.favorites_error.emit(self._wrap_error(e, "無法載入收藏"))

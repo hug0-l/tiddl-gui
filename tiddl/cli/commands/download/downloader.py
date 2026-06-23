@@ -153,7 +153,7 @@ class Downloader:
 
         async with self.semaphore:
             try:
-                stream = self.api.get_track_stream(
+                stream = await self.api.get_track_stream(
                     track_id=item.id, quality=self.track_quality
                 )
 
@@ -272,7 +272,7 @@ class Downloader:
             return None, False
 
         async with self.semaphore:
-            stream = self.api.get_video_stream(
+            stream = await self.api.get_video_stream(
                 video_id=item.id, quality=self.video_quality
             )
 
